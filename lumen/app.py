@@ -1,8 +1,5 @@
 """Lumen API (/v1 = key-authenticated ingestion & CI, /api = web console) + web UI.  Run: python -m lumen"""
 import asyncio
-import base64
-import binascii
-import hmac
 import json
 import os
 import uuid
@@ -11,7 +8,7 @@ from datetime import timedelta
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -35,33 +32,16 @@ app = FastAPI(title="Lumen - LLM observability, evaluation & ops agent", version
 
 
 @app.middleware("http")
-async def require_console_password(request, call_next):
-    if request.url.path == "/healthz":
-        return await call_next(request)
-
-    password = os.environ.get("LUMEN_ACCESS_PASSWORD")
-    if not password:
-        if os.environ.get("RENDER", "").lower() == "true":
-            return PlainTextResponse("LUMEN_ACCESS_PASSWORD is required.", status_code=503)
-        return await call_next(request)
-
-    try:
-        scheme, encoded = request.headers.get("authorization", "").split(" ", 1)
-        username, supplied_password = base64.b64decode(encoded, validate=True).decode().split(":", 1)
-    except (ValueError, UnicodeDecodeError, binascii.Error):
-        scheme, username, supplied_password = "", "", ""
-
+async def protect_public_demo_writes(request, call_next):
     if (
-        scheme.lower() != "basic"
-        or not username
-        or not hmac.compare_digest(supplied_password, password)
+        os.environ.get("RENDER", "").lower() == "true"
+        and request.url.path.startswith("/api/")
+        and request.method not in {"GET", "HEAD", "OPTIONS"}
     ):
-        return PlainTextResponse(
-            "Authentication required.",
-            status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="Lumen"'},
+        return JSONResponse(
+            {"detail": "The hosted demo is read-only."},
+            status_code=403,
         )
-
     return await call_next(request)
 
 

@@ -101,16 +101,13 @@ def test_seed_and_first_run(client, conn):
     assert raw == []  # PII never stored
 
 
-def test_render_password_gate(client, monkeypatch):
-    monkeypatch.setenv("LUMEN_ACCESS_PASSWORD", "test-password")
+def test_render_demo_is_public_and_read_only(client, monkeypatch):
+    monkeypatch.setenv("LUMEN_ACCESS_PASSWORD", "unused-password")
     monkeypatch.setenv("RENDER", "true")
-    assert client.get("/api/projects").status_code == 401
-    assert client.get("/", auth=("admin", "wrong-password")).status_code == 401
-    assert client.get("/api/projects", auth=("admin", "test-password")).status_code == 200
+    assert client.get("/api/projects").status_code == 200
+    assert client.get("/").status_code == 200
+    assert client.post("/api/agents/run", json={"project": PID}).status_code == 403
     assert client.get("/healthz").json() == {"status": "ok"}
-
-    monkeypatch.delenv("LUMEN_ACCESS_PASSWORD")
-    assert client.get("/api/projects").status_code == 503
 
 
 def test_replay_identical(client, conn):

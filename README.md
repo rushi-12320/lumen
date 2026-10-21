@@ -23,18 +23,15 @@ Delete `data/lumen.db` to start over. Type your name in **Signed in as**, becaus
 
 **Live demo:** [https://lumen-isrk.onrender.com](https://lumen-isrk.onrender.com)
 
-The demo prompts for HTTP Basic Auth. Get the generated `LUMEN_ACCESS_PASSWORD` from the Render
-service's Environment settings; any non-empty username works.
+The hosted demo opens without a login and is read-only. Write actions are disabled on the public
+host; run Lumen locally to try project changes, approvals, and settings.
 
 The repository includes a Render Blueprint (`render.yaml`). Create a Render Blueprint from the GitHub
-repository and Render will generate `LUMEN_ACCESS_PASSWORD`. The console and API require HTTP Basic
-authentication on Render; the generated password is available in the service's Environment settings.
-Keep it private. `/healthz` is unauthenticated for platform health checks.
+repository to deploy the demo.
 
 Render's free web service has ephemeral storage and may sleep. Lumen's SQLite database is stored locally,
-so demo data can reset after a sleep, restart, or redeploy. This setup is for a password-protected demo,
-not production. For local development, the password is optional; set `LUMEN_ACCESS_PASSWORD` to enable
-the same protection.
+so demo data can reset after a sleep, restart, or redeploy. This setup is for a public, read-only demo,
+not production. Ingestion and CI endpoints continue to require a project API key.
 
 ## What the demo shows
 
