@@ -21,6 +21,10 @@ Delete `data/lumen.db` to start over. Type your name in **Signed in as**, becaus
 
 ## Deploy a free demo on Render
 
+**Live demo:** [https://lumen-isrk.onrender.com](https://lumen-isrk.onrender.com)  
+The demo prompts for HTTP Basic Auth. Get the generated `LUMEN_ACCESS_PASSWORD` from the Render
+service's Environment settings; any non-empty username works.
+
 The repository includes a Render Blueprint (`render.yaml`). Create a Render Blueprint from the GitHub
 repository and Render will generate `LUMEN_ACCESS_PASSWORD`. The console and API require HTTP Basic
 authentication on Render; the generated password is available in the service's Environment settings.
