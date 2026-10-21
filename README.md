@@ -4,10 +4,10 @@ A self-hosted, multi-project platform for teams running LLM features in producti
 request, scores quality online, finds the cause of regressions with an ops agent, gates releases with
 evaluations, and keeps a tamper-evident audit trail. Agents propose and people approve.
 
-**No cloud LLM and no API keys.** Lumen never reads environment variables and never sends auth headers.
-Its only optional model is a **local Ollama** server, and every LLM job waits in an approval queue until a named
-person approves it. The queue shows the purpose, number of calls, estimated tokens and the exact redacted prompt.
-Endpoints must be local or private addresses unless an admin changes that policy.
+**No cloud LLM credentials required.** Lumen's only optional model is a **local Ollama** server, and every
+LLM job waits in an approval queue until a named person approves it. The queue shows the purpose, number of
+calls, estimated tokens and the exact redacted prompt. Endpoints must be local or private addresses unless
+an admin changes that policy.
 
 ## Run
 
