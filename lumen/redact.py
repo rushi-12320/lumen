@@ -59,6 +59,29 @@ def redact(text, enabled=True):
     return out, counts
 
 
+def redact_value(value, enabled=True):
+    """Redact strings recursively in JSON-like values."""
+    if isinstance(value, str):
+        return redact(value, enabled)
+    if isinstance(value, list):
+        redacted, counts = [], {}
+        for item in value:
+            item, item_counts = redact_value(item, enabled)
+            redacted.append(item)
+            for kind, count in item_counts.items():
+                counts[kind] = counts.get(kind, 0) + count
+        return redacted, counts
+    if isinstance(value, dict):
+        redacted, counts = {}, {}
+        for key, item in value.items():
+            item, item_counts = redact_value(item, enabled)
+            redacted[key] = item
+            for kind, count in item_counts.items():
+                counts[kind] = counts.get(kind, 0) + count
+        return redacted, counts
+    return value, {}
+
+
 def injection_hits(text):
     if not text:
         return []
