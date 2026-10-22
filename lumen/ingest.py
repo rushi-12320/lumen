@@ -10,7 +10,7 @@ import uuid
 from . import evaluators, ledger
 from .db import get_setting, now_iso, one, tx
 from .guardrails import authorize, get_policy
-from .redact import injection_hits, redact
+from .redact import injection_hits, redact, redact_value
 
 DEFAULT_PRICING = {  # USD per 1M tokens - example values, edit in Settings to match your contracts
     "fast-model": {"in": 0.15, "out": 0.60},
@@ -85,8 +85,19 @@ def ingest_traces(conn, project_id, traces, actor="sdk", ts_default=None):
                 continue
             spans = normalize(t)
             md = t.get("metadata") or {}
+            red_tags, tag_counts = redact_value(t.get("tags") or [], pol["redact_pii"])
+            red_md, md_counts = redact_value(md, pol["redact_pii"])
+            red_user_id, user_counts = redact_value(t.get("user_id"), pol["redact_pii"])
+            red_session_id, session_counts = redact_value(t.get("session_id"), pol["redact_pii"])
             llm = [s for s in spans if s["type"] == "llm"]
             main = llm[-1] if llm else (spans[-1] if spans else {})
+            raw_name = t.get("name") or main.get("name") or "trace"
+            trace_name, name_counts = redact(raw_name, pol["redact_pii"])
+            trace_model, model_counts = redact(main.get("model"), pol["redact_pii"])
+            trace_prompt_name, prompt_name_counts = redact(
+                t.get("prompt_name") or md.get("prompt_name"), pol["redact_pii"])
+            trace_prompt_version, prompt_version_counts = redact(
+                _text(t.get("prompt_version") or md.get("prompt_version")), pol["redact_pii"])
             raw_in = _text(t.get("input") if t.get("input") is not None else (llm[0].get("input") if llm else None))
             raw_out = _text(t.get("output") if t.get("output") is not None else main.get("output"))
             context = "\n".join(_text(s.get("output")) or "" for s in spans if s["type"] == "retrieval") or None
@@ -94,8 +105,12 @@ def ingest_traces(conn, project_id, traces, actor="sdk", ts_default=None):
             _, out_pii = redact(raw_out, True)
             red_in, c1 = redact(raw_in, pol["redact_pii"])
             red_out, c2 = redact(raw_out, pol["redact_pii"])
-            red_ctx, _ = redact(context, pol["redact_pii"])
-            n_red = sum(c1.values()) + sum(c2.values())
+            red_ctx, ctx_counts = redact(context, pol["redact_pii"])
+            n_red = (sum(c1.values()) + sum(c2.values()) + sum(ctx_counts.values())
+                     + sum(tag_counts.values()) + sum(md_counts.values())
+                     + sum(user_counts.values()) + sum(session_counts.values())
+                     + sum(name_counts.values()) + sum(model_counts.values())
+                     + sum(prompt_name_counts.values()) + sum(prompt_version_counts.values()))
             tin = sum(int(s.get("tokens_in") or 0) for s in llm)
             tout = sum(int(s.get("tokens_out") or 0) for s in llm)
             cost = round(sum(cost_of(prices, s.get("model"), s.get("tokens_in"), s.get("tokens_out")) for s in llm), 8)
@@ -109,26 +124,41 @@ def ingest_traces(conn, project_id, traces, actor="sdk", ts_default=None):
             if status == "error":
                 res.pop("not_empty", None)
             quality_fail = sorted(k for k, v in res.items() if not v["passed"] and k not in evaluators.SECURITY_SIGNALS)
-            row = {"id": tid, "project_id": project_id, "name": t.get("name") or main.get("name") or "trace",
-                   "ts": t.get("ts") or t.get("timestamp") or ts_default or now_iso(), "user_id": t.get("user_id"),
-                   "session_id": t.get("session_id"), "tags": json.dumps(t.get("tags") or []), "metadata": json.dumps(md, default=str),
-                   "prompt_name": t.get("prompt_name") or md.get("prompt_name"),
-                   "prompt_version": str(t.get("prompt_version") or md.get("prompt_version") or "") or None,
-                   "model": main.get("model"), "status": status, "latency_ms": round(float(lat), 1), "cost": cost,
+            safe_spans = []
+            for s in spans:
+                si, input_counts = redact(_text(s.get("input")), pol["redact_pii"])
+                so, output_counts = redact(_text(s.get("output")), pol["redact_pii"])
+                safe_attrs, attrs_counts = redact_value(s.get("attrs") or {}, pol["redact_pii"])
+                safe_error, error_counts = redact(_text(s.get("error")), pol["redact_pii"])
+                span_name, span_name_counts = redact(s["name"], pol["redact_pii"])
+                span_model, span_model_counts = redact(s.get("model"), pol["redact_pii"])
+                if _text(s.get("input")) != raw_in:
+                    n_red += sum(input_counts.values())
+                if _text(s.get("output")) != raw_out:
+                    n_red += sum(output_counts.values())
+                n_red += sum(attrs_counts.values()) + sum(error_counts.values())
+                if s["name"] != raw_name:
+                    n_red += sum(span_name_counts.values())
+                if s is not main:
+                    n_red += sum(span_model_counts.values())
+                safe_spans.append((str(s["id"]), tid, project_id, s.get("parent_id"), s["type"], span_name,
+                                   span_model, si, so, s.get("tokens_in"), s.get("tokens_out"), s.get("latency_ms"),
+                                   cost_of(prices, s.get("model"), s.get("tokens_in"), s.get("tokens_out"))
+                                   if s["type"] == "llm" else 0, s["status"], safe_error, s.get("start_ms"),
+                                   json.dumps(safe_attrs, default=str)))
+            row = {"id": tid, "project_id": project_id, "name": trace_name,
+                   "ts": t.get("ts") or t.get("timestamp") or ts_default or now_iso(), "user_id": red_user_id,
+                   "session_id": red_session_id, "tags": json.dumps(red_tags), "metadata": json.dumps(red_md, default=str),
+                   "prompt_name": trace_prompt_name,
+                   "prompt_version": trace_prompt_version,
+                   "model": trace_model, "status": status, "latency_ms": round(float(lat), 1), "cost": cost,
                    "tokens_in": tin, "tokens_out": tout, "input": red_in, "output": red_out, "redactions": n_red,
                    "injection": int(bool(inj)), "eval_passed": int(not quality_fail and status == "ok"),
                    "eval_failed": json.dumps(quality_fail)}
             conn.execute("INSERT INTO traces VALUES(:id,:project_id,:name,:ts,:user_id,:session_id,:tags,:metadata,:prompt_name,"
                          ":prompt_version,:model,:status,:latency_ms,:cost,:tokens_in,:tokens_out,:input,:output,:redactions,"
                          ":injection,:eval_passed,:eval_failed)", row)
-            for s in spans:
-                si, _ = redact(_text(s.get("input")), pol["redact_pii"])
-                so, _ = redact(_text(s.get("output")), pol["redact_pii"])
-                conn.execute("INSERT INTO spans VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                             (str(s["id"]), tid, project_id, s.get("parent_id"), s["type"], s["name"], s.get("model"), si, so,
-                              s.get("tokens_in"), s.get("tokens_out"), s.get("latency_ms"),
-                              cost_of(prices, s.get("model"), s.get("tokens_in"), s.get("tokens_out")) if s["type"] == "llm" else 0,
-                              s["status"], s.get("error"), s.get("start_ms"), json.dumps(s.get("attrs") or {}, default=str)))
+            conn.executemany("INSERT INTO spans VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", safe_spans)
             conn.executemany("INSERT INTO evals VALUES(?,?,?,?,?,?)",
                              [(tid, project_id, k, v["score"], int(v["passed"]), v["detail"]) for k, v in res.items()])
             added += 1
