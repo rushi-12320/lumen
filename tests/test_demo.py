@@ -125,3 +125,10 @@ def test_demo_off_by_default():
     assert sandbox.ENABLED is False or os.environ.get("LUMEN_DEMO") == "sandbox"
     with TestClient(app) as c:
         assert sandbox.COOKIE not in c.get("/api/projects").cookies
+
+
+def test_health_check_does_not_create_a_sandbox(demo):
+    with visitor() as c:
+        response = c.get("/healthz")
+        assert response.status_code == 200 and response.json() == {"status": "ok"}
+        assert sandbox.COOKIE not in response.cookies

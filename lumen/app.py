@@ -38,7 +38,7 @@ async def demo_sandbox(request, call_next):
         return await call_next(request)
     from fastapi.responses import JSONResponse
     path, method = request.url.path, request.method
-    if path.startswith("/static") or path in ("/", "/favicon.ico"):
+    if path.startswith("/static") or path in ("/", "/favicon.ico", "/healthz"):
         return await call_next(request)
     new_cookie = None
     if path.startswith("/v1/"):
@@ -67,6 +67,11 @@ async def demo_sandbox(request, call_next):
 @app.get("/api/demo")
 def demo_info():
     return sandbox.info(sandbox.current_id())
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
 
 
 @app.post("/api/demo/reset")
