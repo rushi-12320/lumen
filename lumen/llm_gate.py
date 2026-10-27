@@ -153,7 +153,9 @@ def decide(conn, rid, decision, by, run_async=True):
         conn.execute("UPDATE llm_requests SET status='running', decided_by=?, decided_at=? WHERE id=?", (by, now_iso(), rid))
         ledger.append(conn, "LLM_REQUEST_APPROVED", f"human:{by}", rid, {"n_calls": req["n_calls"]})
     if run_async:
-        threading.Thread(target=_execute, args=(rid,), daemon=True).start()
+        import contextvars
+        ctx = contextvars.copy_context()  # keep the request's database (demo sandbox)
+        threading.Thread(target=ctx.run, args=(_execute, rid), daemon=True).start()
         return {"ok": True, "status": "running"}
     return _execute(rid, conn)
 

@@ -184,3 +184,6 @@ h1.mono, h2.mono { font-size: 18px; }
 code.blk { display: block; white-space: pre; overflow-x: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
   padding: 10px 12px; font-family: var(--mono); font-size: 12px; }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+
+.demo-banner{margin:10px 16px 0;padding:10px 14px;border-radius:10px;border:1px solid var(--info);background:var(--info-bg);color:var(--text);font-size:13.5px;line-height:1.45}
+.demo-banner .btn{margin-left:8px}

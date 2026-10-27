@@ -42,6 +42,8 @@ def create_key(conn, project_id, name, by):
     with tx(conn):
         conn.execute("INSERT INTO api_keys VALUES(?,?,?,?,?,?,?,0)", (kid, project_id, name, hash_key(raw), raw[:8], now_iso(), by))
         ledger.append(conn, "API_KEY_CREATED", f"human:{by}", kid, {"project": project_id, "name": name, "prefix": raw[:8]})
+    from .sandbox import register_key
+    register_key(hash_key(raw))
     return {"ok": True, "id": kid, "key": raw, "note": "Shown once. Only a SHA-256 hash is stored."}
 
 

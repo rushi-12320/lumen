@@ -8,11 +8,11 @@ from datetime import timedelta
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import agents, approvals, db, evals, evaluators, events, ingest, ledger, llm_gate, metrics, prompts, redteam, simulator
+from . import agents, approvals, db, evals, evaluators, events, ingest, ledger, llm_gate, metrics, prompts, redteam, sandbox, simulator
 from .guardrails import DEFAULT_POLICY, authorize, get_policy, set_policy
 
 STATIC = os.path.join(os.path.dirname(__file__), "..", "static")
@@ -32,22 +32,53 @@ app = FastAPI(title="Lumen - LLM observability, evaluation & ops agent", version
 
 
 @app.middleware("http")
-async def protect_public_demo_writes(request, call_next):
-    if (
-        os.environ.get("RENDER", "").lower() == "true"
-        and request.url.path.startswith("/api/")
-        and request.method not in {"GET", "HEAD", "OPTIONS"}
-    ):
-        return JSONResponse(
-            {"detail": "The hosted demo is read-only."},
-            status_code=403,
-        )
-    return await call_next(request)
+async def demo_sandbox(request, call_next):
+    """LUMEN_DEMO=sandbox: route each visitor to a private working copy of the demo (see lumen/sandbox.py)."""
+    if not sandbox.ENABLED:
+        return await call_next(request)
+    from fastapi.responses import JSONResponse
+    path, method = request.url.path, request.method
+    if path.startswith("/static") or path in ("/", "/favicon.ico"):
+        return await call_next(request)
+    new_cookie = None
+    if path.startswith("/v1/"):
+        sid = sandbox.sandbox_for_key(request.headers.get("x-lumen-key"))
+        if not sid:
+            return JSONResponse({"detail": "invalid or missing X-Lumen-Key (create a key under Settings & Keys in your demo)"}, 401)
+    else:
+        sid = request.cookies.get(sandbox.COOKIE)
+        if not sandbox.exists(sid):
+            sid = new_cookie = sandbox.create()
+    sandbox.activate(sid)
+    sandbox.touch(sid)
+    if method in ("POST", "PUT", "PATCH", "DELETE"):
+        msg = sandbox.blocked(method, path)
+        if msg:
+            return JSONResponse({"detail": msg}, 403)
+        if not sandbox.allow_write(sid):
+            return JSONResponse({"detail": "Too many changes per minute in the demo - wait a moment."}, 429)
+    response = await call_next(request)
+    if new_cookie:
+        response.set_cookie(sandbox.COOKIE, new_cookie, max_age=sandbox.TTL_S, httponly=True, samesite="lax",
+                            secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https")
+    return response
 
 
-@app.get("/healthz")
-def healthz():
-    return {"status": "ok"}
+@app.get("/api/demo")
+def demo_info():
+    return sandbox.info(sandbox.current_id())
+
+
+@app.post("/api/demo/reset")
+def demo_reset():
+    from fastapi.responses import JSONResponse
+    sid = sandbox.current_id()
+    if not (sandbox.ENABLED and sid):
+        raise HTTPException(400, "not in demo mode")
+    sandbox.reset(sid)
+    r = JSONResponse({"ok": True, "note": "Your demo was reset. Reload the page for a fresh copy."})
+    r.delete_cookie(sandbox.COOKIE)
+    return r
 
 
 def conn():
@@ -607,6 +638,8 @@ class PolicyIn(BaseModel):
 
 @app.put("/api/policy")
 def put_policy(body: PolicyIn, c=Depends(conn)):
+    if sandbox.ENABLED and set(body.changes) & sandbox.BLOCKED_POLICY_KEYS:
+        raise HTTPException(403, "The data-residency policy cannot be changed in the hosted demo.")
     return set_policy(c, body.changes, need(body.by))
 
 
@@ -715,10 +748,12 @@ def sim_tick(body: TickIn, c=Depends(conn)):
 
 @app.get("/api/events/stream")
 async def stream(last_id: int = 0):
+    sbx = sandbox.current_id()
+
     async def gen():
         last = last_id
         for _ in range(3600):
-            for e in events.since(last):
+            for e in events.since(last, sbx):
                 last = e["id"]
                 yield f"id: {e['id']}\ndata: {json.dumps(e, default=str)}\n\n"
             yield ": keep-alive\n\n"
@@ -728,7 +763,7 @@ async def stream(last_id: int = 0):
 
 @app.get("/api/events/recent")
 def recent():
-    return events.recent(50)
+    return events.recent(50, sandbox.current_id())
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

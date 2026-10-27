@@ -1,0 +1,34 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# SDK, CI release gate and prompt fetches: protected by the project key (X-Lumen-Key), no password.
+	@api path /v1/*
+	handle @api {
+		request_body {
+			max_size 5MB
+		}
+		reverse_proxy lumen:8100
+	}
+
+	# Everything else (web UI, /api used by the UI): password required.
+	handle {
+		basic_auth {
+			{$LUMEN_USER} {$LUMEN_PASSWORD_HASH}
+		}
+		reverse_proxy lumen:8100 {
+			flush_interval -1
+		}
+	}
+}

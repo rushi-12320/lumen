@@ -4,34 +4,20 @@ A self-hosted, multi-project platform for teams running LLM features in producti
 request, scores quality online, finds the cause of regressions with an ops agent, gates releases with
 evaluations, and keeps a tamper-evident audit trail. Agents propose and people approve.
 
-**No cloud LLM credentials required.** Lumen's only optional model is a **local Ollama** server, and every
-LLM job waits in an approval queue until a named person approves it. The queue shows the purpose, number of
-calls, estimated tokens and the exact redacted prompt. Endpoints must be local or private addresses unless
-an admin changes that policy.
+**No cloud LLM and no API keys.** Lumen never reads environment variables and never sends auth headers.
+Its only optional model is a **local Ollama** server, and every LLM job waits in an approval queue until a named
+person approves it. The queue shows the purpose, number of calls, estimated tokens and the exact redacted prompt.
+Endpoints must be local or private addresses unless an admin changes that policy.
 
 ## Run
 
 ```
 pip install -r requirements.txt
 python -m lumen                 # http://127.0.0.1:8100   (Windows: run.bat)
-python -m pytest -q tests       # 14 tests incl. a fake local Ollama and an SDK end-to-end run
+python -m pytest -q tests       # 23 tests incl. a fake local Ollama and an SDK end-to-end run
 ```
 First start seeds a demo tenant ("Support Copilot") with 24 h of synthetic traffic and runs the ops agent once.
 Delete `data/lumen.db` to start over. Type your name in **Signed in as**, because every decision is signed.
-
-## Deploy a free demo on Render
-
-**Live demo:** [https://lumen-isrk.onrender.com](https://lumen-isrk.onrender.com)
-
-The hosted demo opens without a login and is read-only. Write actions are disabled on the public
-host; run Lumen locally to try project changes, approvals, and settings.
-
-The repository includes a Render Blueprint (`render.yaml`). Create a Render Blueprint from the GitHub
-repository to deploy the demo.
-
-Render's free web service has ephemeral storage and may sleep. Lumen's SQLite database is stored locally,
-so demo data can reset after a sleep, restart, or redeploy. This setup is for a public, read-only demo,
-not production. Ingestion and CI endpoints continue to require a project API key.
 
 ## What the demo shows
 
@@ -81,3 +67,13 @@ python tools/lumen_gate.py gate --key lmn_... --dataset rag-golden --name "PR-42
 
 Add SSO/RBAC (names are self-declared here), put HTTPS in front, move SQLite to Postgres for high volume,
 and set your real model prices in Settings. The default prices are examples.
+
+## Public demo
+
+`LUMEN_DEMO=sandbox` turns a hosted instance into a working public demo: each visitor gets a private copy
+(see `lumen/sandbox.py` and `render.yaml`).
+
+## Put it live
+
+See [deploy/DEPLOY.md](deploy/DEPLOY.md): Docker + Caddy with automatic HTTPS, a password on the web UI,
+key-protected SDK/CI endpoints, backups and updates.
