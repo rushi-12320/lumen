@@ -2,7 +2,7 @@
 # Render dashboard -> New -> Blueprint -> pick this repo, or set the same values on an existing web service.
 services:
   - type: web
-    name: lumen-demo
+    name: lumen
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
