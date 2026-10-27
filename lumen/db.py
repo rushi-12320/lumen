@@ -66,7 +66,8 @@ def iso_minus(ts, **kw):
 
 
 def connect(path=None):
-    path = path or DB_PATH
+    from .sandbox import current_db  # demo mode: this request's private copy
+    path = path or current_db() or DB_PATH
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None, timeout=15)
     conn.row_factory = sqlite3.Row

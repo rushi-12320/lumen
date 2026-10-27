@@ -1,8 +1,22 @@
+# Render blueprint for the public Lumen demo (each visitor gets a private working copy).
+# Render dashboard -> New -> Blueprint -> pick this repo, or set the same values on an existing web service.
 services:
   - type: web
     name: lumen
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn lumen.app:app --host 0.0.0.0 --port $PORT
+    # one worker: sandboxes, rate limits and the live feed live in this process
+    startCommand: uvicorn lumen.app:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
     healthCheckPath: /healthz
+    envVars:
+      - key: LUMEN_DEMO
+        value: sandbox
+      - key: LUMEN_SANDBOX_TTL_MIN
+        value: "60"
+      - key: LUMEN_MAX_SANDBOXES
+        value: "50"
+      - key: LUMEN_DEMO_WRITES_PER_MIN
+        value: "60"
+      - key: PYTHON_VERSION
+        value: "3.12.7"

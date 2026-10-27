@@ -505,7 +505,17 @@ $("#operator").value = store.get("operator", "");
 $("#operator").oninput = e => store.set("operator", e.target.value.trim());
 $("#project").onchange = async e => { store.set("project", e.target.value); await refreshStatus(); route(); };
 window.addEventListener("hashchange", route);
+async function demoBanner() {
+  let d; try { d = await api("/api/demo"); } catch { return; }
+  if (!d.demo) return;
+  if (!me()) { $("#operator").value = "Demo visitor"; }
+  const b = document.createElement("div");
+  b.className = "demo-banner";
+  b.innerHTML = `<b>Live demo:</b> this is your own private copy. Approve the rollback, run the ops agent, create a key and send traces. Changes are visible only to you and reset after ${d.ttl_minutes} min without use. <button class="btn" id="demo-reset">Start over</button>`;
+  $(".main").insertBefore(b, $("#ticker"));
+  $("#demo-reset").onclick = async () => { await api("/api/demo/reset", { method: "POST" }); location.hash = ""; location.reload(); };
+}
 (async () => {
-  try { META = await api("/api/meta"); await loadProjects(); } catch (e) { view().innerHTML = errCard(e); return; }
+  try { await demoBanner(); META = await api("/api/meta"); await loadProjects(); } catch (e) { view().innerHTML = errCard(e); return; }
   await refreshStatus(); startEvents(); route(); setInterval(refreshStatus, 20000);
 })();
