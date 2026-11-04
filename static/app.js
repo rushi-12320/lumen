@@ -187,6 +187,15 @@ async function traceDrawer(id) {
     const dss = await api(`/api/datasets?project=${P()}`);
     openDrawer(`<h1 class="mono">${esc(t.name)} · ${esc(t.id.slice(0, 12))}</h1><p class="sub">${esc(when(t.ts))} UTC · ${esc(t.model)} · prompt ${esc(t.prompt_name || "–")} v${esc(t.prompt_version || "–")} · user ${esc(t.user_id || "–")} · ${st(t.status)}</p>
       <div class="grid g4">${kpi("Latency", ms(t.latency_ms), "")}${kpi("Tokens", `${t.tokens_in}/${t.tokens_out}`, "in / out")}${kpi("Cost", usd(t.cost), "")}${kpi("PII redacted", t.redactions, t.injection ? "injection attempt!" : "")}</div>
+      ${d.causes.length ? `<h3 class="mt">Investigator: likely cause</h3>${d.causes.map(c => `<div class="find fail">
+        <b>${esc(c.cause.dimension)} = ${esc(c.cause.value)}</b>${c.cause.new_in_window ? ` ${badge("new in window", "b-vio")}` : ""}
+        <p class="small">${esc(META.metrics[c.metric] || c.metric)} was ${fmt(c.cause.window_value, 3)} for this group vs ${fmt(c.cause.others_value, 3)} for other values (${esc(c.cause.compared_with)}); this group is ${pct(c.cause.share * 100, 0)} of traffic.</p>
+        <p class="small muted">Confidence ${pct(c.cause.confidence * 100, 0)} · run ${esc(c.run_id)}${c.first_seen ? ` · first seen ${esc(when(c.first_seen))} UTC` : ""}</p>
+        ${c.incident ? `<p class="small">Incident: ${esc(c.incident.title)} · ${st(c.incident.status)}</p>` : ""}
+        <div class="small">Cause evidence: ${c.cause.evidence.map(tl).join(", ")}</div>
+        <p class="small muted">This is the Investigator's most likely explanation, not proof. Proposed changes still require a named person's approval.</p>
+        <a class="small" href="#/approvals">Review proposals →</a>
+      </div>`).join("")}` : ""}
       <h3 class="mt">Spans</h3>${d.spans.map(s => `<div class="small"><b>${esc(s.type)}</b> ${esc(s.name)} ${s.model ? `· ${esc(s.model)}` : ""} · ${ms(s.latency_ms)} ${s.error ? `<span class="bad-t">${esc(s.error)}</span>` : ""}</div>
         <div class="wf"><span class="wf-${esc(s.type)} ${s.status === "error" ? "wf-error" : ""}" style="left:${(100 * (s.start_ms || 0)) / total}%;width:${Math.max(1, (100 * (s.latency_ms || 0)) / total)}%"></span></div>`).join("")}
       <h3 class="mt">Evaluators</h3>${d.evals.map(e => `<div class="find ${e.passed ? "pass" : "fail"}">${badge(e.passed ? "pass" : "fail", e.passed ? "b-ok" : "b-bad")} <b>${esc(e.evaluator)}</b> ${fmt(e.score, 2)} <span class="small muted">${esc(e.detail)}</span></div>`).join("")}

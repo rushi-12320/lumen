@@ -225,7 +225,41 @@ def trace(tid: str, c=Depends(conn)):
     spans = db.rows(c, "SELECT * FROM spans WHERE trace_id=? ORDER BY start_ms, id", (tid,))
     for s in spans:
         s["attrs"] = db.jl(s["attrs"], {})
-    return {"trace": t, "spans": spans, "evals": db.rows(c, "SELECT evaluator, score, passed, detail FROM evals WHERE trace_id=? ORDER BY evaluator", (tid,))}
+    runs = db.rows(c, """
+        SELECT DISTINCT r.id, r.started_at, r.summary
+        FROM agent_runs r
+        JOIN json_each(r.summary, '$.findings') f
+        JOIN json_each(f.value, '$.hypotheses') h
+        JOIN json_each(h.value, '$.evidence') e
+        WHERE r.project_id=? AND r.kind='cycle' AND e.value=?
+        ORDER BY r.started_at DESC LIMIT 20
+    """, (t["project_id"], tid))
+    causes = []
+    for run in runs:
+        summary = db.jl(run["summary"], {}) or {}
+        for finding in summary.get("findings", []):
+            for hypothesis in finding.get("hypotheses", []):
+                if tid not in hypothesis.get("evidence", []):
+                    continue
+                incident = db.one(c, """
+                    SELECT i.id, i.title, i.status FROM incidents i
+                    JOIN alert_rules r ON r.id=i.rule_id
+                    WHERE i.project_id=? AND i.run_id=? AND r.name=?
+                    ORDER BY i.created_at DESC LIMIT 1
+                """, (t["project_id"], run["id"], finding["rule"]))
+                causes.append({
+                    "run_id": run["id"],
+                    "rule": finding["rule"],
+                    "metric": finding["metric"],
+                    "first_seen": finding.get("first_seen"),
+                    "cause": {key: hypothesis.get(key) for key in (
+                        "dimension", "value", "window_value", "others_value", "compared_with",
+                        "share", "confidence", "new_in_window", "evidence",
+                    )},
+                    "incident": incident,
+                })
+    return {"trace": t, "spans": spans, "evals": db.rows(c, "SELECT evaluator, score, passed, detail FROM evals WHERE trace_id=? ORDER BY evaluator", (tid,)),
+            "causes": causes}
 
 
 class RuleIn(BaseModel):

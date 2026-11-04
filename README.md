@@ -41,6 +41,7 @@ and users try prompt injections. When the ops agent runs:
 
 - **Monitor** – 4 of 6 alert rules breach (window vs baseline).
 - **Investigator** – root causes are `prompt_version=3` for groundedness (first seen at the deploy time) and `model=smart-model` for latency.
+- Open a cited **trace** to see its most likely cause, the segment-vs-others comparison, and linked evidence traces.
 - **Curator** – proposes adding 20 failing production traces to a regression dataset, so the golden set no longer misses this case.
 - **Remediator** – proposes **rolling back rag_answer v3 → v2**, plus advisories for latency, PII and injection.
 - **Critic** – checks evidence, that the target exists, and that v2 actually performed better.

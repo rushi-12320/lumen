@@ -101,6 +101,21 @@ def test_seed_and_first_run(client, conn):
     assert raw == []  # PII never stored
 
 
+def test_trace_explains_investigator_cause(client, conn):
+    run = db.one(conn, "SELECT * FROM agent_runs WHERE kind='cycle' ORDER BY started_at LIMIT 1")
+    summary = json.loads(run["summary"])
+    finding = next(f for f in summary["findings"] if f["hypotheses"])
+    hypothesis = finding["hypotheses"][0]
+    trace_id = hypothesis["evidence"][0]
+
+    response = client.get(f"/api/traces/{trace_id}")
+    assert response.status_code == 200
+    cause = next(c for c in response.json()["causes"] if c["rule"] == finding["rule"])
+    assert cause["cause"]["dimension"] == hypothesis["dimension"]
+    assert cause["cause"]["value"] == hypothesis["value"]
+    assert trace_id in cause["cause"]["evidence"]
+
+
 def test_render_demo_is_public_and_read_only(client, monkeypatch):
     monkeypatch.setenv("LUMEN_ACCESS_PASSWORD", "unused-password")
     monkeypatch.setenv("RENDER", "true")
