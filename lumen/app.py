@@ -112,6 +112,11 @@ def demo_info():
     return sandbox.info(sid)
 
 
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+
 @app.post("/api/demo/reset")
 def demo_reset():
     from fastapi.responses import JSONResponse
