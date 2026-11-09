@@ -1,18 +1,22 @@
 """Lumen API (/v1 = key-authenticated ingestion & CI, /api = web console) + web UI.  Run: python -m lumen"""
 import asyncio
 import json
+import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import agents, approvals, db, evals, evaluators, events, ingest, ledger, llm_gate, metrics, prompts, redteam, simulator
+from starlette.concurrency import run_in_threadpool
+
+from . import agents, approvals, cloud, db, evals, evaluators, events, ingest, ledger, llm_gate, metrics, otlp, playground, prompts, \
+    redteam, sandbox, sdkdist, simulator
 from .guardrails import DEFAULT_POLICY, authorize, get_policy, set_policy
 
 STATIC = os.path.join(os.path.dirname(__file__), "..", "static")
@@ -20,34 +24,104 @@ STATIC = os.path.join(os.path.dirname(__file__), "..", "static")
 
 @asynccontextmanager
 async def lifespan(_app):
-    c = db.connect()
+    c = db.connect()   # the demo database (in Lumen Cloud: the template every demo visitor gets a copy of)
     pid = simulator.seed_demo(c)
     if pid:
         agents.run_cycle(c, pid)
     c.close()
+    task = None
+    if cloud.ENABLED:
+        from .cloud import server
+        server.start()
+        task = asyncio.create_task(server.loop())
+    held = asyncio.create_task(_otlp_loop())
     yield
+    held.cancel()
+    if task:
+        task.cancel()
+    await asyncio.to_thread(otlp.flush_stale, True)
 
 
-app = FastAPI(title="Lumen - LLM observability, evaluation & ops agent", version="1.0.0", lifespan=lifespan)
+async def _otlp_loop():
+    """Store OpenTelemetry traces whose root span never arrived (see lumen/otlp.py)."""
+    while True:
+        await asyncio.sleep(5)
+        try:
+            await asyncio.to_thread(otlp.flush_stale)
+        except Exception:
+            logging.getLogger("lumen.otlp").exception("could not store held traces")
+
+
+# In Lumen Cloud /docs is the website's documentation page, so FastAPI's own API explorer is switched off there.
+_API_DOCS = {} if not cloud.ENABLED else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+app = FastAPI(title="Lumen - LLM observability, evaluation & ops agent", version="1.0.0", lifespan=lifespan, **_API_DOCS)
 
 
 @app.middleware("http")
-async def protect_public_demo_writes(request, call_next):
-    if (
-        os.environ.get("RENDER", "").lower() == "true"
-        and request.url.path.startswith("/api/")
-        and request.method not in {"GET", "HEAD", "OPTIONS"}
-    ):
-        return JSONResponse(
-            {"detail": "The hosted demo is read-only."},
-            status_code=403,
-        )
-    return await call_next(request)
+async def demo_sandbox(request, call_next):
+    """LUMEN_DEMO=sandbox: route each visitor to a private working copy of the demo (see lumen/sandbox.py).
+    In Lumen Cloud the cloud middleware does the routing (the demo lives under /demo there)."""
+    if not sandbox.ENABLED or cloud.ENABLED:
+        return await call_next(request)
+    from fastapi.responses import HTMLResponse, JSONResponse
+    from starlette.concurrency import run_in_threadpool
+    path, method = request.url.path, request.method
+    is_api = path.startswith("/api/")
+    if not (path == "/" or is_api or path.startswith("/v1/")):
+        return await call_next(request)               # static files, favicon, API docs: no copy needed
+    new_cookie = None
+    if path.startswith("/v1/"):
+        sid = sandbox.sandbox_for_key(request.headers.get("x-lumen-key"))
+        if not sid:
+            return JSONResponse({"detail": "invalid or missing X-Lumen-Key (create a key under Settings & Keys in your demo)"}, 401)
+    else:
+        sid = request.cookies.get(sandbox.COOKIE)
+        if not sandbox.exists(sid):
+            if path == "/api/demo" and method == "GET":
+                return await call_next(request)       # health checks and the demo banner need no copy
+            if is_api:                                # copies are made only by opening the page
+                return JSONResponse({"detail": "Your demo copy has expired. Reload the page.", "reload": "/"}, 409)
+            if not sandbox.allow_new(request.client.host if request.client else "?"):
+                return HTMLResponse("<p>Too many demo copies were opened from your address in the last hour. "
+                                    "Please try again later.</p>", 429)
+            sid = new_cookie = await run_in_threadpool(sandbox.create)
+    sandbox.activate(sid)
+    sandbox.touch(sid)
+    if method in ("POST", "PUT", "PATCH", "DELETE"):
+        msg = sandbox.blocked(method, path)
+        if msg:
+            return JSONResponse({"detail": msg}, 403)
+        if sandbox.full(sid):
+            return JSONResponse({"detail": "This demo copy is full. Reset the demo for a fresh copy."}, 413)
+        if not sandbox.allow_write(sid):
+            return JSONResponse({"detail": "Too many changes per minute in the demo - wait a moment."}, 429)
+    response = await call_next(request)
+    if path == "/":
+        response.headers["Cache-Control"] = "no-store"     # the page is what makes a visitor's copy: never serve it from cache
+    if new_cookie:
+        response.set_cookie(sandbox.COOKIE, new_cookie, max_age=sandbox.TTL_S, httponly=True, samesite="lax",
+                            secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https")
+    return response
 
 
-@app.get("/healthz")
-def healthz():
-    return {"status": "ok"}
+@app.get("/api/demo")
+def demo_info():
+    sid = sandbox.current_id()
+    if sid and sid.startswith("tenant:"):        # a Lumen Cloud organisation, not a demo copy
+        return {"demo": False, "sandbox": False}
+    return sandbox.info(sid)
+
+
+@app.post("/api/demo/reset")
+def demo_reset():
+    from fastapi.responses import JSONResponse
+    sid = sandbox.current_id()
+    if not (sandbox.ENABLED and sid):
+        raise HTTPException(400, "not in demo mode")
+    sandbox.reset(sid)
+    r = JSONResponse({"ok": True, "note": "Your demo was reset. Reload the page for a fresh copy."})
+    r.delete_cookie(sandbox.COOKIE)
+    return r
 
 
 def conn():
@@ -99,6 +173,34 @@ def v1_traces(body: dict, pid=Depends(key_project), c=Depends(conn)):
     return res
 
 
+def _otlp_accept(pid, body, ctype, encoding):
+    spans = otlp.decode(body, ctype, encoding)
+    c = db.connect()
+    try:
+        return otlp.accept(c, pid, spans)
+    finally:
+        c.close()
+
+
+@app.post("/v1/otlp/v1/traces")
+async def v1_otlp(request: Request, pid=Depends(key_project)):
+    """OpenTelemetry (OTLP/HTTP) trace export: protobuf or JSON, optionally gzip. See lumen/otlp.py."""
+    body = await request.body()
+    if len(body) > otlp.MAX_BODY:
+        raise HTTPException(413, "OTLP export larger than 10 MB: lower the exporter's batch size")
+    ctype = request.headers.get("content-type", "")
+    try:
+        res = await run_in_threadpool(_otlp_accept, pid, body, ctype, request.headers.get("content-encoding", ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if res["stored"]:
+        events.publish("traces", count=res["stored"], project=pid)
+    headers = {"x-lumen-added": str(res["added"]), "x-lumen-held": str(res["held"])}
+    if ctype.split(";")[0].strip().lower() == "application/json":
+        return JSONResponse({"partialSuccess": {}}, headers=headers)
+    return Response(b"", media_type="application/x-protobuf", headers=headers)
+
+
 @app.get("/v1/prompts/{name}")
 def v1_prompt(name: str, label: str = "production", version: Optional[int] = None, pid=Depends(key_project), c=Depends(conn)):
     p = prompts.get(c, pid, name, label, version)
@@ -144,15 +246,42 @@ def v1_experiment(body: V1ExpIn, pid=Depends(key_project), c=Depends(conn)):
 @app.get("/api/meta")
 def meta():
     return {"metrics": metrics.METRICS, "dimensions": metrics.DIMENSIONS, "evaluators": evaluators.DESCRIPTIONS,
-            "online": list(evaluators.ONLINE), "offline": list(evaluators.OFFLINE) + ["llm_judge"]}
+            "online": list(evaluators.ONLINE), "offline": list(evaluators.OFFLINE) + ["llm_judge"], "sdk": sdkdist.info()}
 
 
 @app.get("/api/projects")
 def projects(c=Depends(conn)):
     out = db.rows(c, "SELECT id, name, created_at FROM projects ORDER BY created_at")
     for p in out:
-        p["traces"] = db.one(c, "SELECT COUNT(*) n FROM traces WHERE project_id=?", (p["id"],))["n"]
+        r = db.one(c, "SELECT COUNT(*) n, SUM(name='playground') pg FROM traces WHERE project_id=?", (p["id"],))
+        p["traces"], p["playground"] = r["n"], r["pg"] or 0      # playground: from the Try it page, not from an app
     return out
+
+
+# ------------------------------------------------------------------ Try it (playground)
+class PlayIn(BaseModel):
+    project: str
+    message: str
+    variant: str = "grounded"
+    session: Optional[str] = None
+
+
+@app.get("/api/playground")
+def playground_info():
+    return playground.info()
+
+
+@app.post("/api/playground/chat")
+def playground_chat(body: PlayIn, c=Depends(conn)):
+    _proj(c, body.project)
+    msg = (body.message or "").strip()
+    if not msg:
+        raise HTTPException(400, "Type a question first.")
+    if len(msg) > 2000:
+        raise HTTPException(400, "Keep the question under 2,000 characters.")
+    r = playground.chat(c, body.project, msg, body.variant, body.session)
+    events.publish("traces", count=r["added"], project=body.project)
+    return r
 
 
 class ProjectIn(BaseModel):
@@ -607,6 +736,8 @@ class PolicyIn(BaseModel):
 
 @app.put("/api/policy")
 def put_policy(body: PolicyIn, c=Depends(conn)):
+    if sandbox.ENABLED and set(body.changes) & sandbox.BLOCKED_POLICY_KEYS:
+        raise HTTPException(403, "The data-residency policy cannot be changed in the hosted demo.")
     return set_policy(c, body.changes, need(body.by))
 
 
@@ -708,19 +839,23 @@ class TickIn(BaseModel):
 
 @app.post("/api/sim/tick")
 def sim_tick(body: TickIn, c=Depends(conn)):
-    r = simulator.generate(c, body.project, max(1, min(body.n, 500)))
+    r = simulator.generate(c, body.project, max(1, min(body.n, 50 if sandbox.ENABLED else 500)))
     events.publish("traces", count=r["added"], project=body.project)
     return r
 
 
 @app.get("/api/events/stream")
-async def stream(last_id: int = 0):
+async def stream(last_id: int = 0, last_event_id: Optional[str] = Header(None)):
+    sbx = sandbox.current_id()
+    if last_event_id and last_event_id.isdigit():   # EventSource reconnect: continue, do not replay
+        last_id = max(last_id, int(last_event_id))
+
     async def gen():
         last = last_id
         for _ in range(3600):
-            for e in events.since(last):
-                last = e["id"]
-                yield f"id: {e['id']}\ndata: {json.dumps(e, default=str)}\n\n"
+            for e in events.since(last, sbx):
+                last = e["seq"]
+                yield f"id: {e['seq']}\ndata: {json.dumps(e, default=str)}\n\n"
             yield ": keep-alive\n\n"
             await asyncio.sleep(1)
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -728,10 +863,46 @@ async def stream(last_id: int = 0):
 
 @app.get("/api/events/recent")
 def recent():
-    return events.recent(50)
+    return events.recent(50, sandbox.current_id())
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+# ------------------------------------------------------------------ the Python SDK, for pip and for copying
+@app.get("/sdk/lumen_sdk.py")
+def sdk_file():
+    return Response(sdkdist.source(), media_type="text/x-python", headers={"Content-Disposition": 'attachment; filename="lumen_sdk.py"'})
+
+
+@app.get("/sdk", include_in_schema=False)
+@app.get("/sdk/", include_in_schema=False)
+def sdk_index(request: Request):
+    i = sdkdist.info()
+    name, base = i["wheel"].rsplit("/", 1)[1], (cloud.public_url() if cloud.ENABLED else str(request.base_url).rstrip("/"))
+    return HTMLResponse(f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Lumen Python SDK</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;line-height:1.5">
+<h1>Lumen Python SDK {i['version']}</h1>
+<p><a href="{name}#sha256={i['sha256']}">{name}</a> &middot; <a href="lumen_sdk.py">lumen_sdk.py</a> (the same SDK as one file)</p>
+<pre style="background:#f4f4f5;padding:12px;overflow-x:auto">pip install {base}/sdk/{name}
+
+import lumen_sdk
+lumen_sdk.init(api_key="lmn_...", host="{base}")</pre>
+<p>Standard library only, Python 3.8 or newer. The package is called <code>{i['dist']}</code>; you import <code>lumen_sdk</code>.</p>
+</body></html>""")
+
+
+@app.get("/sdk/{name}", include_in_schema=False)
+def sdk_wheel(name: str):
+    fn, data, _ = sdkdist.wheel()
+    if name != fn:
+        raise HTTPException(404, f"Not found. The current SDK is /sdk/{fn}")
+    return Response(data, media_type="application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{fn}"', "Cache-Control": "public, max-age=300"})
+
+if cloud.ENABLED:                       # Lumen Cloud: website, accounts, teams, billing (see lumen/cloud/)
+    from .cloud import server as _cloud_server
+    _cloud_server.setup(app)
 
 
 @app.get("/")

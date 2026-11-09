@@ -1,0 +1,78 @@
+<section class="wrap hero">
+  <div>
+    <div class="eyebrow">LLM observability for teams in production</div>
+    <h1>See every LLM answer. Catch bad ones. Fix them with a human in the loop.</h1>
+    <p class="lead">{{brand}} traces your AI app, scores every answer, alerts you when quality drops and proposes fixes, such as a prompt rollback, that a named person approves. Personal data is redacted before anything is stored.</p>
+    <div class="btn-row"><a class="btn primary" href="/signup">Start free</a><a class="btn" href="/demo">Try the live demo</a></div>
+    <p class="facts">Free plan, no card needed · Data stored in India (AWS Mumbai) · Self-host available</p>
+  </div>
+  <div class="snippet" aria-label="Python example">
+    <div class="bar"><i></i><i></i><i></i></div>
+<pre><span class="k">from</span> lumen_sdk <span class="k">import</span> Lumen
+lumen = Lumen(api_key=<span class="s">"lmn_…"</span>, host=<span class="s">"{{public_url}}"</span>)
+
+<span class="k">with</span> lumen.start_trace(<span class="s">"support_answer"</span>, input=question) <span class="k">as</span> t:
+    answer = call_your_llm(question)   <span class="c"># your code</span>
+    t.output = answer
+
+<span class="c"># → cost, latency, groundedness, PII and injection checks,</span>
+<span class="c">#   alerts and the audit trail appear in the console</span></pre>
+  </div>
+</section>
+
+<section class="wrap section" id="product">
+  <div class="eyebrow">How it works</div>
+  <h2>Three steps from first trace to a safe fix</h2>
+  <div class="steps">
+    <div class="step"><div class="num">01 · Connect</div><h3>Add three lines</h3><p class="muted">Copy the standard-library Python SDK into your app, or send JSON to the REST API from any language. Traces go out in the background and never break your app.</p></div>
+    <div class="step"><div class="num">02 · Watch</div><h3>See and score every answer</h3><p class="muted">Latency, tokens and cost per call, plus automatic checks: groundedness for RAG, PII leaks, prompt injection, refusals, toxicity, valid JSON and your latency SLO.</p></div>
+    <div class="step"><div class="num">03 · Fix safely</div><h3>Approve, don't hope</h3><p class="muted">Alerts open incidents. The ops agent investigates and proposes a remedy; a critic checks it; a named person in your team approves it. Every step lands in a tamper-evident ledger.</p></div>
+  </div>
+</section>
+
+<section class="wrap section">
+  <div class="eyebrow">What you get</div>
+  <h2>Everything to run an LLM feature with confidence</h2>
+  <div class="grid4">
+    <div class="feature"><div class="ico">≡</div><h3>Tracing</h3><p class="muted small">Every request with its retrieval, model calls, tokens, latency and cost. Search by user, session, prompt version.</p></div>
+    <div class="feature"><div class="ico">⊿</div><h3>Evaluations</h3><p class="muted small">Online checks on live traffic, datasets and experiments offline, and a release gate your CI calls before a prompt ships.</p></div>
+    <div class="feature"><div class="ico">⚑</div><h3>Alerts &amp; incidents</h3><p class="muted small">Rules on error rate, p95 latency, cost, PII leaks and injection attempts, with sensible defaults from day one.</p></div>
+    <div class="feature"><div class="ico">✓</div><h3>Human approvals</h3><p class="muted small">Agents read and propose; people decide. Rollbacks, dataset edits and LLM jobs wait for a named approver.</p></div>
+    <div class="feature"><div class="ico">❏</div><h3>Prompt registry</h3><p class="muted small">Versioned prompts your app fetches at runtime. A version reaches production only through a passing gate.</p></div>
+    <div class="feature"><div class="ico">⛨</div><h3>Guardrails</h3><p class="muted small">PII redacted before storage, a kill switch for agents, and policies that block actions without approval.</p></div>
+    <div class="feature"><div class="ico">⛓</div><h3>Audit ledger</h3><p class="muted small">A hash-chained record of every decision: who approved what, when and why. Verify it any time.</p></div>
+    <div class="feature"><div class="ico">◎</div><h3>LLM on our GPU</h3><p class="muted small">LLM-as-judge and summaries run on our own GPU server in Mumbai, never on a third-party AI API, and only after approval.</p></div>
+  </div>
+</section>
+
+<section class="wrap section">
+  <div class="band">
+    <div><div class="eyebrow" style="color:#9DB8E8">Trust</div><h2>Your data, kept apart and in India</h2><p>Built for teams whose security review asks hard questions. <a href="/security" style="color:#F6F5F1;text-decoration:underline">Read how it works</a>.</p></div>
+    <ul class="ticks">
+      <li>Each customer has a separate database, never shared tables</li>
+      <li>Personal data (emails, phones, cards, keys) redacted before it is stored</li>
+      <li>Hosted on AWS in Mumbai; encrypted disks; HTTPS everywhere</li>
+      <li>Backups every 15 minutes, with daily copies kept 35 days</li>
+      <li>Export everything or delete your organisation in one click</li>
+      <li>Prefer your own servers? Run {{brand}} self-hosted</li>
+    </ul>
+  </div>
+</section>
+
+<section class="wrap section" id="pricing">
+  <div class="btn-row" style="justify-content:space-between"><div><div class="eyebrow">Pricing</div><h2>Start free. Upgrade when it matters.</h2></div>
+  <div class="cur-toggle" role="group" aria-label="Currency"><button data-set="INR">₹ INR</button><button data-set="USD">$ USD</button></div></div>
+  {{pricing_cards}}
+  <p class="muted small center">Indian prices exclude 18% GST. <a href="/pricing">Compare plans in detail</a>.</p>
+</section>
+
+<section class="wrap section faq">
+  <h2>Questions</h2>
+  <details><summary>What exactly do you store?</summary><p>The traces your app sends: inputs, outputs, retrieved context, model names, tokens, latency and cost, after personal data is redacted. You choose what to send; you can delete it any time.</p></details>
+  <details><summary>Do you train AI models on my data?</summary><p>No. Your data is used only to show you your traces and run the checks you ask for. LLM jobs run on our own GPU server, never on a third-party AI provider.</p></details>
+  <details><summary>Which languages and frameworks work?</summary><p>The Python SDK is one file that needs only the standard library. Any other language can send JSON to the REST API with one HTTP call.</p></details>
+  <details><summary>What happens when I reach my plan's limit?</summary><p>We email you at 80% and at 100%. At 100% new traces are refused until the month ends or you upgrade; your app keeps working because the SDK never blocks it.</p></details>
+  <details><summary>Can I cancel any time?</summary><p>Yes. Your plan stays active until the end of the paid month, then you move to the Free plan. See the <a href="/refunds">cancellation and refund policy</a>.</p></details>
+</section>
+
+<section class="wrap"><div class="cta"><h2>Watch your LLM app in 15 minutes</h2><p class="muted">Sign up, create a key, send your first trace.</p><div class="btn-row" style="justify-content:center"><a class="btn primary" href="/signup">Start free</a><a class="btn" href="/docs">Read the quickstart</a></div></div></section>

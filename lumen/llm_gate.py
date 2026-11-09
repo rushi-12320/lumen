@@ -138,7 +138,9 @@ def decide(conn, rid, decision, by, run_async=True):
         raise ValueError(f"request is already {req['status']}")
     if decision == "reject":
         with tx(conn):
-            conn.execute("UPDATE llm_requests SET status='rejected', decided_by=?, decided_at=? WHERE id=?", (by, now_iso(), rid))
+            if conn.execute("UPDATE llm_requests SET status='rejected', decided_by=?, decided_at=? WHERE id=? AND status='pending'",
+                            (by, now_iso(), rid)).rowcount != 1:
+                raise ValueError("request was already decided")
             ledger.append(conn, "LLM_REQUEST_REJECTED", f"human:{by}", rid, {})
         return {"ok": True, "status": "rejected"}
     cfg, pol = config(conn), get_policy(conn)
@@ -149,11 +151,15 @@ def decide(conn, rid, decision, by, run_async=True):
                            "n_calls": req["n_calls"], "llm_enabled": cfg["enabled"]})
     if d["decision"] != "allow":
         return {"ok": False, **d}
-    with tx(conn):
-        conn.execute("UPDATE llm_requests SET status='running', decided_by=?, decided_at=? WHERE id=?", (by, now_iso(), rid))
+    with tx(conn):            # only one approval wins, even when two arrive at the same moment
+        if conn.execute("UPDATE llm_requests SET status='running', decided_by=?, decided_at=? WHERE id=? AND status='pending'",
+                        (by, now_iso(), rid)).rowcount != 1:
+            raise ValueError("request was already decided")
         ledger.append(conn, "LLM_REQUEST_APPROVED", f"human:{by}", rid, {"n_calls": req["n_calls"]})
     if run_async:
-        threading.Thread(target=_execute, args=(rid,), daemon=True).start()
+        import contextvars
+        ctx = contextvars.copy_context()  # keep the request's database (demo sandbox)
+        threading.Thread(target=ctx.run, args=(_execute, rid), daemon=True).start()
         return {"ok": True, "status": "running"}
     return _execute(rid, conn)
 

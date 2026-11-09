@@ -1,0 +1,18 @@
+# For publishing the SDK to PyPI later (python -m build sdk && twine upload sdk/dist/*). Until then Lumen serves the
+# same package itself at /sdk/ (lumen/sdkdist.py builds it from lumen_sdk.py). "lumen-sdk" on PyPI is another project.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lumen-llm-sdk"
+dynamic = ["version"]
+description = "Lumen SDK: traces and checks every OpenAI, Anthropic and Gemini call of your app"
+requires-python = ">=3.8"
+dependencies = []
+
+[tool.setuptools]
+py-modules = ["lumen_sdk"]
+
+[tool.setuptools.dynamic]
+version = {attr = "lumen_sdk.__version__"}

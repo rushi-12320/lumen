@@ -1,0 +1,38 @@
+# Lumen Cloud on ONE small server: website, sign-up, the public demo (with Try it), the console and the SDK,
+# behind Caddy with automatic HTTPS. No GPU: LLM jobs (LLM judge, summaries) stay off.
+#   First time:    sudo bash install.sh          (asks a few questions, writes .env, starts everything)
+#   After updates: sudo docker compose up -d --build
+# Guide: GO-LIVE.md (next to this file).
+name: lumen
+services:
+  lumen:
+    build: {context: ../.., dockerfile: deploy/Dockerfile}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LUMEN_MODE: cloud
+      LUMEN_DATA_DIR: /data
+      LUMEN_DB: /data/lumen.db
+      LUMEN_PUBLIC_URL: https://${DOMAIN}
+    volumes: [lumen-data:/data]
+    expose: ["8100"]                  # not published: the internet reaches Lumen only through Caddy
+    logging: {driver: json-file, options: {max-size: "20m", max-file: "5"}}
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    depends_on: [lumen]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging: {driver: json-file, options: {max-size: "20m", max-file: "5"}}
+
+volumes:
+  lumen-data:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,42 @@
+<div class="app-wrap" id="onboarding">
+  <div class="eyebrow">Get started · <span id="ob-org"></span></div>
+  <h1>Send your first trace</h1>
+  <p class="lead">Three steps, about 5 minutes. Your project <b id="ob-project"></b> is ready.</p>
+  <div class="card note" id="ob-verify" hidden><div class="msg"></div>We sent you a link to confirm your email address. You need it to invite people, upgrade and run LLM jobs.
+    <button class="btn small" id="ob-resend" type="button">Send it again</button></div>
+
+  <div class="onb-step" id="ob-step1"><div class="n">1</div><div>
+    <h3>Create an API key</h3>
+    <p class="muted">Your app sends traces with this key. It is shown once; we keep only a hash.</p>
+    <div class="msg" id="ob-key-msg"></div>
+    <button class="btn primary" id="ob-key-btn" type="button">Create my key</button> <span class="small muted" id="ob-key-note"></span>
+    <div id="ob-key" hidden style="margin-top:14px"><div class="keybox" id="ob-key-val"></div>
+      <div class="btn-row" style="margin-top:8px"><button class="btn small" id="ob-key-copy" type="button">Copy</button><span class="small muted">Store it in your app's secrets, for example an environment variable.</span></div></div>
+  </div></div>
+
+  <div class="onb-step" id="ob-step2"><div class="n">2</div><div>
+    <h3>Add two lines to your app</h3>
+    <p class="muted">From then on every OpenAI, Anthropic and Gemini call is traced and checked, including async and streaming calls.
+      Not ready to code? <a href="/app#/playground">Try the sample bot</a> to see what Lumen checks.</p>
+    <div class="btn-row" style="margin-bottom:10px"><button class="btn small" data-tab="py" type="button">Python · 2 lines</button><button class="btn small" data-tab="rag" type="button">Python · RAG</button>
+      <button class="btn small" data-tab="otel" type="button">OpenTelemetry (any language)</button><button class="btn small" data-tab="curl" type="button">HTTP</button>
+      <button class="btn small" id="ob-copy" type="button">Copy</button></div>
+    <pre id="ob-code"></pre>
+    <div class="wait" id="ob-wait"><span class="spin"></span>Waiting for your first trace…</div>
+  </div></div>
+
+  <div class="onb-step"><div class="n">3</div><div>
+    <h3>Look at it in the console</h3>
+    <p class="muted">Traces, checks and alerts appear live. Default alert rules for errors, latency, cost, PII and injection are already on.</p>
+    <a class="btn" id="ob-open" href="/app">Open the console</a>
+  </div></div>
+
+  <div class="onb-step"><div class="n">+</div><div>
+    <h3>Invite your team (optional)</h3>
+    <form id="ob-invite" class="btn-row"><div class="msg" style="width:100%"></div>
+      <input name="email" type="email" placeholder="colleague@company.com" required style="max-width:280px">
+      <select name="role" style="max-width:140px"><option value="member">member</option><option value="admin">admin</option></select>
+      <button class="btn" type="submit">Send invitation</button></form>
+    <p class="small muted">Admins and owners approve fixes and LLM jobs. <a href="/docs#teams">About roles</a></p>
+  </div></div>
+</div>

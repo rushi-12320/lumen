@@ -1,0 +1,10 @@
+<section class="auth">
+  <h1>Reset your password</h1>
+  <p class="muted">We will email you a link to choose a new password.</p>
+  <form class="card" data-api="/auth/forgot" data-reset>
+    <div class="msg"></div>
+    <div class="field"><label for="em">Email</label><input id="em" name="email" type="email" autocomplete="email" required></div>
+    <button class="btn primary" type="submit" style="width:100%">Send the link</button>
+    <p class="small" style="margin:14px 0 0"><a href="/login">Back to log in</a></p>
+  </form>
+</section>

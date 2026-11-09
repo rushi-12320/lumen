@@ -1,0 +1,502 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Lumen Cloud in one region (default Mumbai, ap-south-1): app server (Lumen + Caddy HTTPS), GPU server (Ollama),
+  private encrypted S3 bucket for releases and backups, settings in Secrets Manager, alarms by email,
+  optional business-hours schedule for the GPU. Shell access only through AWS Systems Manager (no SSH port).
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: "Your website"}
+        Parameters: [DomainName, AdminEmail, EmailFrom]
+      - Label: {default: "Network (pick the default VPC and one of its public subnets)"}
+        Parameters: [VpcId, SubnetId]
+      - Label: {default: "Servers"}
+        Parameters: [AppInstanceType, AppVolumeGB, EnableGpu, GpuInstanceType, GpuVolumeGB, GpuSchedule, LlmModel]
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: The address of the website, e.g. lumen.example.com (point its DNS A record at the AppPublicIP output).
+    AllowedPattern: "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
+  AdminEmail:
+    Type: String
+    Description: Gets alarm emails, the HTTPS certificate notices, and admin rights in Lumen (the /admin page).
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+  EmailFrom:
+    Type: String
+    Description: Sender of Lumen's emails, e.g. "Lumen <no-reply@example.com>". Verify the domain in Amazon SES first.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: A public subnet of that VPC (the default VPC's subnets are public).
+  AppInstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.medium, t3.large, t3.xlarge, m7i.large, m7i.xlarge]
+  AppVolumeGB:
+    Type: Number
+    Default: 60
+    MinValue: 30
+  EnableGpu:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Run the GPU server for approved LLM jobs (judge, summaries).
+  GpuInstanceType:
+    Type: String
+    Default: g4dn.xlarge
+    AllowedValues: [g4dn.xlarge, g4dn.2xlarge, g5.xlarge, g6.xlarge]
+  GpuVolumeGB:
+    Type: Number
+    Default: 120
+    MinValue: 100
+  GpuSchedule:
+    Type: String
+    Default: AlwaysOn
+    AllowedValues: [AlwaysOn, BusinessHours]
+    Description: BusinessHours runs the GPU 08:00-21:00 IST Monday-Saturday (about half the GPU cost); approved jobs wait until it is on.
+  LlmModel:
+    Type: String
+    Default: llama3.1:8b
+    Description: Ollama model to serve (fits a 16 GB T4 at this size).
+  LatestAppAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  LatestGpuAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-amazon-linux-2023/latest/ami-id
+
+Conditions:
+  HasGpu: !Equals [!Ref EnableGpu, "true"]
+  GpuBusinessHours: !And [!Condition HasGpu, !Equals [!Ref GpuSchedule, BusinessHours]]
+
+Resources:
+  # ------------------------------------------------------------------ storage and settings
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      VersioningConfiguration: {Status: Enabled}
+      LifecycleConfiguration:
+        Rules:
+          - Id: frequent-backups-2-days
+            Status: Enabled
+            Prefix: backups/frequent/
+            ExpirationInDays: 2
+            NoncurrentVersionExpiration: {NoncurrentDays: 1}
+          - Id: daily-backups-35-days
+            Status: Enabled
+            Prefix: backups/daily/
+            ExpirationInDays: 35
+            NoncurrentVersionExpiration: {NoncurrentDays: 1}
+          - Id: old-releases
+            Status: Enabled
+            Prefix: release/
+            NoncurrentVersionExpiration: {NoncurrentDays: 60}
+
+  AppSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: >-
+        Lumen Cloud settings. Fill in the payment keys and company details (Secrets Manager > this secret >
+        Retrieve secret value > Edit). The app server reloads them within 2 minutes of your next release upload,
+        or at once with `sudo lumen-deploy --force`.
+      GenerateSecretString:
+        GenerateStringKey: LUMEN_SECRET_KEY
+        PasswordLength: 48
+        ExcludePunctuation: true
+        SecretStringTemplate: >-
+          {"RAZORPAY_KEY_ID":"","RAZORPAY_KEY_SECRET":"","RAZORPAY_WEBHOOK_SECRET":"","RAZORPAY_PLAN_TEAM_INR":"",
+          "RAZORPAY_PLAN_TEAM_USD":"","STRIPE_SECRET_KEY":"","STRIPE_WEBHOOK_SECRET":"","STRIPE_PRICE_TEAM_USD":"",
+          "LUMEN_COMPANY_NAME":"","LUMEN_COMPANY_ADDRESS":"","LUMEN_SUPPORT_EMAIL":"","LUMEN_SUPPORT_PHONE":"",
+          "LUMEN_GSTIN":"","LUMEN_GRIEVANCE_OFFICER":"","LUMEN_JURISDICTION":"","LUMEN_POLICIES_UPDATED":"",
+          "LUMEN_POLICIES_FINAL":""}
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: Lumen alarms
+      Subscription: [{Endpoint: !Ref AdminEmail, Protocol: email}]
+
+  # ------------------------------------------------------------------ permissions
+  AppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{Effect: Allow, Principal: {Service: ec2.amazonaws.com}, Action: sts:AssumeRole}]
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore]
+      Policies:
+        - PolicyName: lumen-app
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub "${ArtifactsBucket.Arn}/*"
+              - Effect: Allow
+                Action: [s3:ListBucket]
+                Resource: !GetAtt ArtifactsBucket.Arn
+              - Effect: Allow
+                Action: [secretsmanager:GetSecretValue]
+                Resource: !Ref AppSecret
+              - Effect: Allow
+                Action: [ses:SendEmail, ses:SendRawEmail]
+                Resource: "*"
+  AppProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: {Roles: [!Ref AppRole]}
+
+  GpuRole:
+    Type: AWS::IAM::Role
+    Condition: HasGpu
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{Effect: Allow, Principal: {Service: ec2.amazonaws.com}, Action: sts:AssumeRole}]
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore]
+  GpuProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: HasGpu
+    Properties: {Roles: [!Ref GpuRole]}
+
+  # ------------------------------------------------------------------ network
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Lumen app - HTTPS from anywhere, no SSH (use Session Manager)
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: "HTTP for certificate checks and redirects"}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS}
+        - {IpProtocol: udp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTP/3}
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIpv6: "::/0", Description: HTTP IPv6}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIpv6: "::/0", Description: HTTPS IPv6}
+  GpuSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: HasGpu
+    Properties:
+      GroupDescription: Lumen GPU - Ollama reachable only from the Lumen app server
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 11434, ToPort: 11434, SourceSecurityGroupId: !Ref AppSecurityGroup, Description: Ollama from app}
+
+  # ------------------------------------------------------------------ GPU server (Ollama)
+  GpuInstance:
+    Type: AWS::EC2::Instance
+    Condition: HasGpu
+    Properties:
+      ImageId: !Ref LatestGpuAmi
+      InstanceType: !Ref GpuInstanceType
+      IamInstanceProfile: !Ref GpuProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref GpuSecurityGroup]
+      MetadataOptions: {HttpTokens: required}
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: {VolumeSize: !Ref GpuVolumeGB, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true}
+      Tags: [{Key: Name, Value: lumen-gpu}]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          curl -fsSL https://ollama.com/install.sh | sh
+          mkdir -p /etc/systemd/system/ollama.service.d
+          cat > /etc/systemd/system/ollama.service.d/lumen.conf <<'EOF'
+          [Service]
+          Environment="OLLAMA_HOST=0.0.0.0:11434"
+          Environment="OLLAMA_KEEP_ALIVE=24h"
+          Environment="OLLAMA_NUM_PARALLEL=4"
+          EOF
+          systemctl daemon-reload
+          systemctl enable ollama
+          systemctl restart ollama
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:11434/api/tags && break; sleep 5; done
+          ollama pull ${LlmModel}
+
+  # ------------------------------------------------------------------ app server (Lumen + Caddy)
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAppAmi
+      InstanceType: !Ref AppInstanceType
+      IamInstanceProfile: !Ref AppProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref AppSecurityGroup]
+      MetadataOptions: {HttpTokens: required, HttpPutResponseHopLimit: 2}   # 2: the Lumen container uses the server's role (SES)
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: {VolumeSize: !Ref AppVolumeGB, VolumeType: gp3, Encrypted: true, DeleteOnTermination: false}
+      Tags: [{Key: Name, Value: lumen-app}]
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            set -euxo pipefail
+            dnf install -y docker unzip sqlite jq
+            mkdir -p /usr/local/lib/docker/cli-plugins
+            curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+            chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+            systemctl enable --now docker
+            mkdir -p /opt/lumen/data /opt/lumen/releases /opt/lumen/caddy/data /opt/lumen/caddy/config
+            chown -R 10001:10001 /opt/lumen/data
+            cat > /opt/lumen/stack.env <<'EOF'
+            LUMEN_DOMAIN="${DomainName}"
+            LUMEN_BUCKET="${ArtifactsBucket}"
+            AWS_REGION="${AWS::Region}"
+            LUMEN_SECRET_ARN="${AppSecret}"
+            LUMEN_PLATFORM_LLM_URL="${GpuUrl}"
+            LUMEN_PLATFORM_LLM_MODEL="${LlmModel}"
+            LUMEN_ADMIN_EMAILS="${AdminEmail}"
+            LUMEN_ACME_EMAIL="${AdminEmail}"
+            LUMEN_EMAIL_FROM="${EmailFrom}"
+            EOF
+            touch /opt/lumen/secrets.env && chmod 600 /opt/lumen/secrets.env /opt/lumen/stack.env
+
+            cat > /usr/local/bin/lumen-backup <<'EOF'
+            #!/bin/bash
+            # Consistent copies of every Lumen database -> S3 (every 15 min, kept 2 days; one a day kept 35 days).
+            set -euo pipefail
+            source /opt/lumen/stack.env
+            T=$(mktemp -d)
+            cd /opt/lumen/data
+            find . -name '*.db' -not -path './sandboxes/*' | while read -r f; do
+              mkdir -p "$T/$(dirname "$f")"
+              sqlite3 "$f" ".backup '$T/$f'"
+            done
+            [ -f secret.key ] && cp secret.key "$T/" || true
+            tar -czf "$T.tar.gz" -C "$T" .
+            NAME=$(date -u +%Y/%m/%d/%H%M).tar.gz
+            aws s3 cp "$T.tar.gz" "s3://$LUMEN_BUCKET/backups/frequent/$NAME" --only-show-errors
+            if [ "$(date -u +%H%M)" \< "0015" ]; then
+              aws s3 cp "$T.tar.gz" "s3://$LUMEN_BUCKET/backups/daily/$NAME" --only-show-errors
+            fi
+            rm -rf "$T" "$T.tar.gz"
+            echo "backup uploaded: $NAME"
+            EOF
+
+            cat > /usr/local/bin/lumen-deploy <<'EOF'
+            #!/bin/bash
+            # Deploys s3://<bucket>/release/lumen.zip whenever a new one is uploaded (checked every 2 minutes by
+            # lumen-deploy.timer). Backs up first; rolls back if the new release does not answer /healthz.
+            #   sudo lumen-deploy --force     redeploy now (for example after editing the settings secret)
+            set -euo pipefail
+            source /opt/lumen/stack.env
+            cd /opt/lumen
+            ETAG=$(aws s3api head-object --bucket "$LUMEN_BUCKET" --key release/lumen.zip --query ETag --output text 2>/dev/null || echo none)
+            if [ "$ETAG" = none ]; then echo "waiting for s3://$LUMEN_BUCKET/release/lumen.zip"; exit 0; fi
+            FORCE=no; if [ "$#" -gt 0 ] && [ "$1" = "--force" ]; then FORCE=yes; fi
+            if [ "$FORCE" = no ] && [ -f deployed.etag ] && [ "$(cat deployed.etag)" = "$ETAG" ]; then exit 0; fi
+            exec 9>/opt/lumen/deploy.lock; flock -n 9 || { echo "a deploy is already running"; exit 0; }
+            /usr/local/bin/lumen-backup || echo "backup failed - continuing"
+            TS=$(date -u +%Y%m%d-%H%M%S)-$RANDOM
+            aws s3 cp "s3://$LUMEN_BUCKET/release/lumen.zip" /tmp/lumen.zip --only-show-errors
+            mkdir -p "releases/$TS" && unzip -q -o /tmp/lumen.zip -d "releases/$TS" && rm -f /tmp/lumen.zip
+            aws secretsmanager get-secret-value --secret-id "$LUMEN_SECRET_ARN" --region "$AWS_REGION" --query SecretString --output text \
+              | jq -r 'to_entries[] | select((.value|tostring) != "") | "\(.key)=\(.value|tostring|@json)"' > secrets.env.new
+            chmod 600 secrets.env.new && mv secrets.env.new secrets.env
+            PREV=$(readlink current || true)
+            ln -sfn "/opt/lumen/releases/$TS" current
+            cd /opt/lumen/current/deploy/aws
+            docker compose --env-file /opt/lumen/stack.env -p lumen up -d --build --remove-orphans
+            OK=no
+            for i in $(seq 1 45); do
+              if curl -fsS -o /dev/null http://127.0.0.1:8100/healthz; then OK=yes; break; fi
+              sleep 2
+            done
+            if [ "$OK" = yes ]; then
+              echo "$ETAG" > /opt/lumen/deployed.etag
+              echo "deployed release $TS"
+              ls -1dt /opt/lumen/releases/* | tail -n +6 | xargs -r rm -rf
+              docker image prune -f >/dev/null || true
+            else
+              echo "release $TS failed its health check - rolling back to $PREV"
+              if [ -n "$PREV" ]; then
+                ln -sfn "$PREV" /opt/lumen/current
+                cd /opt/lumen/current/deploy/aws && docker compose --env-file /opt/lumen/stack.env -p lumen up -d --build --remove-orphans
+              fi
+              echo "$ETAG" > /opt/lumen/deployed.etag
+              exit 1
+            fi
+            EOF
+            chmod 755 /usr/local/bin/lumen-backup /usr/local/bin/lumen-deploy
+
+            cat > /etc/systemd/system/lumen-deploy.service <<'EOF'
+            [Unit]
+            Description=Deploy the latest Lumen release from S3
+            After=docker.service network-online.target
+            Requires=docker.service
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/lumen-deploy
+            EOF
+            cat > /etc/systemd/system/lumen-deploy.timer <<'EOF'
+            [Unit]
+            Description=Check for a new Lumen release every 2 minutes
+            [Timer]
+            OnBootSec=1min
+            OnUnitActiveSec=2min
+            [Install]
+            WantedBy=timers.target
+            EOF
+            cat > /etc/systemd/system/lumen-backup.service <<'EOF'
+            [Unit]
+            Description=Back up Lumen databases to S3
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/lumen-backup
+            EOF
+            cat > /etc/systemd/system/lumen-backup.timer <<'EOF'
+            [Unit]
+            Description=Back up Lumen every 15 minutes
+            [Timer]
+            OnCalendar=*:0/15
+            Persistent=true
+            [Install]
+            WantedBy=timers.target
+            EOF
+            systemctl daemon-reload
+            systemctl enable --now lumen-deploy.timer lumen-backup.timer
+          - GpuUrl: !If [HasGpu, !Sub "http://${GpuInstance.PrivateIp}:11434", ""]
+
+  AppAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref AppInstance
+      Tags: [{Key: Name, Value: lumen-app}]
+
+  # ------------------------------------------------------------------ alarms (email to AdminEmail)
+  AppRecoverAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Lumen app server hardware problem - AWS moves it to healthy hardware
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions: [{Name: InstanceId, Value: !Ref AppInstance}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions: [!Sub "arn:aws:automate:${AWS::Region}:ec2:recover", !Ref AlertTopic]
+  AppRebootAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Lumen app server not responding - reboot it
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_Instance
+      Dimensions: [{Name: InstanceId, Value: !Ref AppInstance}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions: [!Sub "arn:aws:automate:${AWS::Region}:ec2:reboot", !Ref AlertTopic]
+  AppCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Lumen app server CPU above 85% for 15 minutes - time for a bigger server
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions: [{Name: InstanceId, Value: !Ref AppInstance}]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions: [!Ref AlertTopic]
+  GpuStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasGpu
+    Properties:
+      AlarmDescription: Lumen GPU server failed its status check
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions: [{Name: InstanceId, Value: !Ref GpuInstance}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  # ------------------------------------------------------------------ optional GPU business hours (IST)
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Condition: GpuBusinessHours
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{Effect: Allow, Principal: {Service: scheduler.amazonaws.com}, Action: sts:AssumeRole}]
+      Policies:
+        - PolicyName: start-stop-gpu
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [ec2:StartInstances, ec2:StopInstances]
+                Resource: !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${GpuInstance}"
+  GpuStartSchedule:
+    Type: AWS::Scheduler::Schedule
+    Condition: GpuBusinessHours
+    Properties:
+      Description: Start the Lumen GPU at 08:00 IST, Monday to Saturday
+      ScheduleExpression: cron(0 8 ? * MON-SAT *)
+      ScheduleExpressionTimezone: Asia/Kolkata
+      FlexibleTimeWindow: {Mode: "OFF"}
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:startInstances
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: !Sub '{"InstanceIds": ["${GpuInstance}"]}'
+  GpuStopSchedule:
+    Type: AWS::Scheduler::Schedule
+    Condition: GpuBusinessHours
+    Properties:
+      Description: Stop the Lumen GPU at 21:00 IST
+      ScheduleExpression: cron(0 21 ? * * *)
+      ScheduleExpressionTimezone: Asia/Kolkata
+      FlexibleTimeWindow: {Mode: "OFF"}
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:stopInstances
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: !Sub '{"InstanceIds": ["${GpuInstance}"]}'
+
+Outputs:
+  AppPublicIP:
+    Description: "Create a DNS A record: <DomainName> -> this address"
+    Value: !Ref AppAddress
+  WebsiteUrl:
+    Value: !Sub "https://${DomainName}"
+  ReleaseUpload:
+    Description: Upload the release zip here (it deploys itself within about 2 minutes)
+    Value: !Sub "s3://${ArtifactsBucket}/release/lumen.zip"
+  SettingsSecret:
+    Description: Fill in the payment keys and company details in this Secrets Manager secret
+    Value: !Ref AppSecret
+  RazorpayWebhookUrl:
+    Value: !Sub "https://${DomainName}/webhooks/razorpay"
+  StripeWebhookUrl:
+    Value: !Sub "https://${DomainName}/webhooks/stripe"
+  BackupBucket:
+    Value: !Ref ArtifactsBucket
+  ShellAccess:
+    Description: Shell on the app server without SSH
+    Value: !Sub "EC2 console > lumen-app > Connect > Session Manager  (instance ${AppInstance})"
+  GpuPrivateAddress:
+    Condition: HasGpu
+    Value: !GetAtt GpuInstance.PrivateIp

@@ -6,7 +6,27 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 DB_PATH = os.environ.get("LUMEN_DB", os.path.join(os.path.dirname(__file__), "..", "data", "lumen.db"))
-_lock = threading.RLock()
+_lock = threading.RLock()          # for connections not made by connect()
+_locks, _locks_guard = {}, threading.Lock()
+
+
+class _Conn(sqlite3.Connection):
+    lumen_path = None
+
+
+def _lock_for(conn):
+    """Writers queue per database file, so one organisation's (or demo copy's) big write never blocks the others."""
+    p = getattr(conn, "lumen_path", None)
+    if not p:
+        return _lock
+    with _locks_guard:
+        lk = _locks.get(p)
+        if lk is None:
+            if len(_locks) > 5000:                           # forget files that are gone (deleted orgs, old demo copies)
+                for k in [k for k in _locks if not os.path.exists(k)]:
+                    _locks.pop(k, None)
+            lk = _locks[p] = threading.RLock()
+        return lk
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, name TEXT, created_at TEXT, settings TEXT);
@@ -66,9 +86,11 @@ def iso_minus(ts, **kw):
 
 
 def connect(path=None):
-    path = path or DB_PATH
+    from .sandbox import current_db  # demo mode: this request's private copy
+    path = path or current_db() or DB_PATH
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None, timeout=15)
+    conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None, timeout=15, factory=_Conn)
+    conn.lumen_path = os.path.abspath(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
@@ -77,7 +99,7 @@ def connect(path=None):
 
 @contextmanager
 def tx(conn):
-    with _lock:
+    with _lock_for(conn):
         conn.execute("BEGIN IMMEDIATE")
         try:
             yield conn

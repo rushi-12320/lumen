@@ -1,0 +1,10 @@
+<section class="auth">
+  <h1>Choose a new password</h1>
+  <form class="card" data-api="/auth/reset" data-confirm>
+    <div class="msg"></div>
+    <input type="hidden" name="token" data-q="token">
+    <div class="field"><label for="pw">New password (10+ characters)</label><input id="pw" name="password" type="password" autocomplete="new-password" minlength="10" required></div>
+    <div class="field"><label for="pw2">Repeat the password</label><input id="pw2" name="password2" type="password" autocomplete="new-password" minlength="10" required></div>
+    <button class="btn primary" type="submit" style="width:100%">Save and log in</button>
+  </form>
+</section>

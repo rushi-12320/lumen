@@ -1,0 +1,40 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# SDK, OpenTelemetry, CI release gate and prompt fetches: protected by the project key (X-Lumen-Key), no password.
+	@api path /v1/*
+	handle @api {
+		request_body {
+			max_size 12MB
+		}
+		reverse_proxy lumen:8100
+	}
+
+	# The Python SDK download (public code), so `pip install https://<domain>/sdk/...whl` works without the password.
+	@sdk path /sdk /sdk/*
+	handle @sdk {
+		reverse_proxy lumen:8100
+	}
+
+	# Everything else (web UI, /api used by the UI): password required.
+	handle {
+		basic_auth {
+			{$LUMEN_USER} {$LUMEN_PASSWORD_HASH}
+		}
+		reverse_proxy lumen:8100 {
+			flush_interval -1
+		}
+	}
+}

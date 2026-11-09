@@ -1,0 +1,15 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# HTTPS certificates are fetched automatically once the domain's DNS A record points at this server.
+{$LUMEN_DOMAIN} {
+	encode zstd gzip
+	header -Server
+	request_body {
+		max_size 10MB
+	}
+	reverse_proxy lumen:8100 {
+		flush_interval -1      # live activity stream (Server-Sent Events)
+	}
+}

@@ -1,0 +1,19 @@
+<section class="wrap section">
+  <div class="btn-row" style="justify-content:space-between;align-items:flex-end">
+    <div><div class="eyebrow">Pricing</div><h1>Simple plans, priced per organisation</h1><p class="lead">No per-seat surprises and no charge per trace inside your plan. Pay in rupees or dollars.</p></div>
+    <div class="cur-toggle" role="group" aria-label="Currency"><button data-set="INR">₹ INR</button><button data-set="USD">$ USD</button></div>
+  </div>
+  {{pricing_cards}}
+  <h2 style="margin-top:40px">Compare the limits</h2>
+  {{plan_rows}}
+  <p class="muted small">Indian prices exclude 18% GST, added at checkout. LLM calls run on our GPU server only after a person in your team approves each job.</p>
+</section>
+<section class="wrap section faq">
+  <h2>Billing questions</h2>
+  <details><summary>How do I pay?</summary><p>In India: UPI, cards and net banking through Razorpay. Outside India: international cards. Plans renew monthly until you cancel.</p></details>
+  <details><summary>Do I get a GST invoice?</summary><p>Yes, for every payment. Send your company's GSTIN to {{email}} and we will show it on your invoices so you can claim input tax credit.</p></details>
+  <details><summary>Is there a free trial of Team?</summary><p>Yes, 14 days, once per organisation, with no card needed. When it ends you move to the Free plan unless you upgrade.</p></details>
+  <details><summary>What if I go over the limit?</summary><p>We email you at 80% and 100% of your monthly traces. Above 100% new traces are refused until the next month; nothing is charged automatically.</p></details>
+  <details><summary>Can I cancel or get a refund?</summary><p>Cancel any time in Settings &gt; Billing; the plan stays active until the end of the paid month. See the <a href="/refunds">cancellation and refund policy</a>.</p></details>
+  <details><summary>We need it on our own servers.</summary><p>{{brand}} also runs self-hosted, with nothing leaving your network. <a href="/contact">Talk to us</a> about Enterprise.</p></details>
+</section>

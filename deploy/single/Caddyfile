@@ -1,0 +1,15 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# The HTTPS certificate is fetched automatically once the domain's DNS A record points at this server.
+{$DOMAIN} {
+	encode zstd gzip
+	header -Server
+	request_body {
+		max_size 12MB
+	}
+	reverse_proxy lumen:8100 {
+		flush_interval -1
+	}
+}

@@ -1,0 +1,93 @@
+<div class="wrap doc">
+<nav aria-label="Documentation">
+  <a href="#quickstart">Quickstart</a><a href="#python">Python SDK</a><a href="#otel">OpenTelemetry</a><a href="#rest">REST API</a><a href="#evals">Evaluations &amp; CI gate</a>
+  <a href="#alerts">Alerts &amp; incidents</a><a href="#approvals">Approvals &amp; LLM jobs</a><a href="#teams">Teams &amp; roles</a>
+  <a href="#limits">Limits &amp; retention</a><a href="#data">Your data</a><a href="#self-host">Self-hosting</a>
+</nav>
+<article>
+  <h1>Documentation</h1>
+  <p class="lead">Everything to connect an app, read what the console shows and run {{brand}} yourself.</p>
+
+  <h2 id="quickstart">Quickstart (5 minutes)</h2>
+  <ol>
+    <li><a href="/signup">Create a free account</a>. Your organisation and a first project are created for you.</li>
+    <li>In <b>Get started</b> (or <b>Settings &amp; Keys</b> in the console), create an API key. It is shown once; we store only a hash.</li>
+    <li>Add two lines to your Python app (below). Every LLM call appears in <b>Traces</b> within seconds, already checked.</li>
+    <li>Invite your team in <b>Settings &gt; Team</b>. Admins and owners approve fixes and LLM jobs.</li>
+  </ol>
+  <p>Want to see the checks first? <a href="/demo">Open the live demo</a> and use <b>Try it</b>: a sample support bot whose every answer is traced and checked.</p>
+
+  <h2 id="python">Python SDK</h2>
+  <p>Standard library only, Python 3.8+. <code>init()</code> traces every call of the OpenAI, Anthropic and Google Gemini libraries
+    (normal, async and streaming), and of providers you use through the <code>openai</code> package (Azure OpenAI, Groq, Together,
+    DeepSeek, vLLM, Ollama). Traces are sent in the background; a problem inside {{brand}} never breaks your app.</p>
+<pre>pip install {{public_url}}{{sdk_wheel}}</pre>
+<pre><span class="k">import</span> lumen_sdk
+lumen_sdk.init(api_key=<span class="s">"lmn_…"</span>, host=<span class="s">"{{public_url}}"</span>)   <span class="c"># or set LUMEN_API_KEY and LUMEN_HOST</span>
+
+<span class="c"># one request = one trace; LLM calls inside become its spans</span>
+<span class="k">with</span> lumen_sdk.trace(<span class="s">"rag_answer"</span>, input=question, user_id=user_id) <span class="k">as</span> t:
+    <span class="k">with</span> t.span(<span class="s">"retrieval"</span>, name=<span class="s">"kb_search"</span>, input=question) <span class="k">as</span> s:
+        s.output = docs                               <span class="c"># turns on the groundedness check</span>
+    answer = client.chat.completions.create(model=<span class="s">"gpt-4o-mini"</span>, messages=messages)
+    t.output = answer.choices[0].message.content
+
+<span class="c"># or: every call of a function is one trace</span>
+@lumen_sdk.observe(<span class="s">"classify"</span>)
+<span class="k">def</span> classify(text): ...
+
+tpl = lumen_sdk.get_prompt(<span class="s">"rag_answer"</span>)   <span class="c"># the production prompt from the registry</span></pre>
+  <p>The package is called <code>lumen-llm-sdk</code> (the name <code>lumen-sdk</code> on PyPI belongs to another project) and you
+    import <code>lumen_sdk</code>. You can also copy the single file: <code>curl -O {{public_url}}/sdk/lumen_sdk.py</code>.
+    Set your real model prices in <b>Settings &amp; Keys</b> so cost per request is right; the defaults are examples.</p>
+
+  <h2 id="otel">OpenTelemetry (any language)</h2>
+  <p>Any OpenTelemetry exporter can send to {{brand}}: JavaScript/TypeScript, Go, Java and .NET apps, LangChain and LlamaIndex
+    (through OpenInference or OpenLLMetry) and the Vercel AI SDK. {{brand}} reads the OpenTelemetry GenAI conventions
+    (<code>gen_ai.*</code>), OpenInference, OpenLLMetry and the Vercel AI SDK's attributes.</p>
+<pre>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT={{public_url}}/v1/otlp/v1/traces
+OTEL_EXPORTER_OTLP_TRACES_HEADERS=x-lumen-key=lmn_…</pre>
+  <p>Protobuf and JSON are accepted, compressed or not. Spans of one request that arrive in different batches are joined into one
+    trace when the request's top-level span arrives (or after 15 seconds).</p>
+
+  <h2 id="rest">REST API</h2>
+  <p>All SDK endpoints take the header <code>X-Lumen-Key</code>. Base URL: <code>{{public_url}}</code>.</p>
+  <div class="table-wrap"><table class="data">
+    <tr><th>Endpoint</th><th>What it does</th></tr>
+    <tr><td><code>POST /v1/traces</code></td><td>1 to 1,000 traces per call: <code>{"traces": [{"name", "input", "output", "model", "latency_ms", "tokens_in", "tokens_out", "spans": [...], "metadata": {...}}]}</code>. Returns how many were added.</td></tr>
+    <tr><td><code>POST /v1/otlp/v1/traces</code></td><td>OpenTelemetry trace export (OTLP over HTTP, protobuf or JSON). See <a href="#otel">OpenTelemetry</a>.</td></tr>
+    <tr><td><code>POST /v1/experiments</code></td><td>Score a batch of outputs against a dataset and run the release gate (for CI).</td></tr>
+    <tr><td><code>GET /v1/prompts/{name}</code></td><td>The prompt with the label <code>production</code> (or <code>?label=</code> / <code>?version=</code>).</td></tr>
+  </table></div>
+<pre>curl -X POST {{public_url}}/v1/traces -H "X-Lumen-Key: lmn_…" -H "Content-Type: application/json" \
+  -d '{"traces":[{"name":"hello","input":"Hi","output":"Hello!","model":"my-model","latency_ms":420}]}'</pre>
+  <p>Errors: <code>401</code> bad key · <code>400</code> or <code>422</code> bad body · <code>429</code> monthly trace limit reached (the body says so).</p>
+
+  <h2 id="evals">Evaluations and the CI release gate</h2>
+  <p>Every trace is checked online: <i>not empty, valid JSON, PII leak, prompt injection, refusal, toxicity, groundedness</i> (for RAG, against the retrieved context) and <i>latency SLO</i>. Offline, build datasets from real traces, run experiments, add exact-match or F1 scores, and optionally an LLM-as-judge on our GPU (needs approval). Your CI calls <code>POST /v1/experiments</code>; the gate passes only when the new version is at least as good as the baseline.</p>
+
+  <h2 id="alerts">Alerts and incidents</h2>
+  <p>New projects start with rules for error rate, p95 latency, PII in outputs, injection attempts and hourly cost. When one fires, an incident opens and the ops agent investigates: it compares prompt versions, collects failing traces into a regression dataset and proposes a remedy.</p>
+
+  <h2 id="approvals">Approvals and LLM jobs</h2>
+  <p>Agents never change anything on their own. A proposal (for example a rollback to the previous prompt version) is first challenged by a critic, then waits in <b>Approvals</b> until an admin or owner approves or rejects it, with their name. LLM jobs (judging answers, summaries) show how many calls they need and run on our GPU in Mumbai only after approval; they count against your monthly LLM calls.</p>
+
+  <h2 id="teams">Teams and roles</h2>
+  <div class="table-wrap"><table class="data">
+    <tr><th>Role</th><th>Can</th></tr>
+    <tr><td>Member</td><td>See everything, build datasets, run experiments, write prompts, create alert rules.</td></tr>
+    <tr><td>Admin</td><td>Also: approve proposals and LLM jobs, create and revoke API keys and projects, change guardrails and prices, invite people, manage billing.</td></tr>
+    <tr><td>Owner</td><td>Also: make owners, delete the organisation.</td></tr>
+  </table></div>
+
+  <h2 id="limits">Limits and retention</h2>
+  <p>Limits are per organisation and month (see <a href="/pricing">pricing</a>). We email owners and admins at 80% and 100% of traces; above 100% new traces get <code>429</code> until the month ends or you upgrade. Traces older than your plan's retention are deleted automatically.</p>
+
+  <h2 id="data">Your data</h2>
+  <p>Each organisation has its own database. Admins can download all of it from <b>Settings &gt; Data</b> (an SQLite file you can open with any SQLite tool). Owners can delete the organisation; its database is erased at once and backups expire within 35 days. Details: <a href="/security">security</a> and <a href="/privacy">privacy policy</a>.</p>
+
+  <h2 id="self-host">Self-hosting</h2>
+  <p>The same product runs on your own server with Docker: nothing leaves your network, and LLM jobs use your own Ollama. The Community edition is free; <a href="/contact">Enterprise</a> adds support, SSO on request and help with security reviews.</p>
+<pre>docker compose up -d      <span class="c"># Lumen + Caddy with automatic HTTPS (see deploy/DEPLOY.md)</span></pre>
+</article>
+</div>

@@ -1,0 +1,46 @@
+<div class="app-wrap" id="settings">
+  <div class="btn-row" style="justify-content:space-between"><h1 style="margin:0">Settings</h1><div class="btn-row"><a class="btn small" href="/app">Back to the console</a><a class="btn small" href="#" data-logout>Log out</a></div></div>
+  <p class="muted">Organisation: <b data-org-name></b></p>
+  <nav class="tabs"><a href="#account">Account</a><a href="#team">Team</a><a href="#billing">Billing</a><a href="#data">Data</a></nav>
+
+  <section class="panel stack" id="p-account">
+    <form class="card" id="acc-form"><div class="msg" id="acc-msg"></div>
+      <div class="field"><label for="acc-name">Your name (signs your approvals)</label><input id="acc-name" type="text" required></div>
+      <dl class="kv"><dt>Email</dt><dd><span id="acc-email"></span> <span id="acc-verified"></span></dd></dl>
+      <button class="btn primary" type="submit" style="margin-top:14px">Save</button></form>
+    <form class="card" data-api="/api/me/password" data-reset><h3>Change password</h3><div class="msg"></div>
+      <div class="field"><label>Current password</label><input name="current" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label>New password (10+ characters)</label><input name="new" type="password" minlength="10" autocomplete="new-password" required></div>
+      <button class="btn" type="submit">Change password</button></form>
+    <div class="card"><h3>Your organisations</h3><div class="table-wrap"><table class="data"><tbody id="orgs"></tbody></table></div>
+      <form id="neworg" class="btn-row" style="margin-top:14px"><div class="msg" style="width:100%"></div><input name="name" type="text" placeholder="New organisation name" required style="max-width:300px"><button class="btn" type="submit">Create organisation</button></form></div>
+  </section>
+
+  <section class="panel stack" id="p-team">
+    <div class="msg" id="team-msg"></div>
+    <div class="card"><div class="btn-row" style="justify-content:space-between"><h3 style="margin:0">Members</h3><span class="small muted" id="team-limit"></span></div>
+      <div class="table-wrap" style="margin-top:12px"><table class="data"><tbody id="members"></tbody></table></div></div>
+    <div class="card"><h3>Pending invitations</h3><div class="table-wrap"><table class="data"><tbody id="invites"></tbody></table></div>
+      <form id="invite-form" class="btn-row" style="margin-top:14px"><input name="email" type="email" placeholder="colleague@company.com" required style="max-width:300px">
+        <select name="role" style="max-width:140px"><option value="member">member</option><option value="admin">admin</option><option value="owner">owner</option></select>
+        <button class="btn primary" type="submit">Invite</button></form>
+      <p class="small muted">Members see everything and build datasets and prompts. Admins also approve fixes and LLM jobs, manage keys, people and billing. Owners can also delete the organisation.</p></div>
+  </section>
+
+  <section class="panel stack" id="p-billing">
+    <div class="msg" id="bill-msg"></div>
+    <div class="card" id="bill-plan"></div>
+    <div class="card" id="bill-actions"></div>
+    <p class="small muted">Payments are handled by Razorpay (India) and Stripe (international); we never see card or bank details. <a href="/pricing" target="_blank">Plans</a> · <a href="/refunds" target="_blank">Refund policy</a></p>
+  </section>
+
+  <section class="panel stack" id="p-data">
+    <div class="card" id="data-export"><h3>Export</h3><p class="muted">Download your organisation's complete database (traces, evaluations, prompts, approvals, audit ledger) as an SQLite file.</p>
+      <a class="btn" href="/api/org/export">Download all data</a></div>
+    <form class="card" id="danger"><h3>Delete the organisation</h3>
+      <p class="muted">Erases the organisation and all its data at once (backups expire within 35 days). An active subscription is cancelled. This cannot be undone.</p>
+      <div class="msg" id="del-msg"></div>
+      <div class="field"><label>Type the organisation's name to confirm</label><input name="confirm" type="text" required></div>
+      <button class="btn danger" type="submit">Delete the organisation</button></form>
+  </section>
+</div>

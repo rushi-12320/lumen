@@ -1,0 +1,19 @@
+/* Lumen Cloud additions to the console (dark theme of static/styles.css). */
+.cloud-acct { display: flex; align-items: center; gap: 12px; font-size: 13px; flex-wrap: wrap; }
+.cloud-acct a, .cloud-link { color: var(--muted); text-decoration: none; background: none; border: 0; cursor: pointer; padding: 0; font-size: 13px; }
+.cloud-acct a:hover, .cloud-link:hover { color: var(--text); }
+.cloud-acct select { background: var(--panel2); border: 1px solid var(--line2); border-radius: 6px; padding: 5px 8px; max-width: 190px; }
+.cloud-plan { border: 1px solid var(--line2); border-radius: 99px; padding: 3px 10px; color: var(--text) !important; }
+.cloud-acct a.cloud-cta { background: var(--amber); color: #0d1014 !important; border-radius: 6px; padding: 5px 12px; font-weight: 600; }
+.cloud-banner { margin: 10px 16px 0; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--warn); background: var(--warn-bg); font-size: 13.5px; }
+.cloud-banner a { color: var(--text); font-weight: 600; }
+.operator input[readonly] { opacity: .85; cursor: default; }
+/* demo-only controls are hidden in a customer's workspace (they are also refused by the server) */
+body.lumen-cloud #tick, body.lumen-cloud #tamp { display: none !important; }
+.cloud-side { display: flex; flex-direction: column; gap: 2px; padding: 8px 16px 12px; border-top: 1px solid var(--line); }
+.cloud-side a { color: var(--muted); text-decoration: none; font-size: 13px; padding: 4px 0; }
+.cloud-side a:hover { color: var(--text); }
+@media (max-width: 760px) {
+  .cloud-acct { gap: 10px; }
+  .cloud-acct span.cloud-plan { display: none; }      /* "Live demo with sample data": the demo banner says it */
+}

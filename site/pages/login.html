@@ -1,0 +1,12 @@
+<section class="auth">
+  <h1>Log in</h1>
+  <p class="muted">New here? <a href="/signup">Create a free account</a>.</p>
+  <form class="card" data-api="/auth/login">
+    <div class="msg"></div>
+    <div class="field"><label for="em">Email</label><input id="em" name="email" type="email" autocomplete="email" required></div>
+    <div class="field"><label for="pw">Password</label><input id="pw" name="password" type="password" autocomplete="current-password" required></div>
+    <input type="hidden" name="next" data-q="next">
+    <button class="btn primary" type="submit" style="width:100%">Log in</button>
+    <p class="small" style="margin:14px 0 0"><a href="/forgot">Forgot your password?</a></p>
+  </form>
+</section>

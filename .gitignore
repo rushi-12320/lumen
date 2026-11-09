@@ -1,11 +1,15 @@
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.venv/
-venv/
+# runtime data: databases, demo copies, the secret key, email outbox
+data/*
+!data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+secret.key
 .env
-.env.*
-!.env.example
-data/*.db
-data/*.db-*
-.copilot-azure/
+# build output and caches
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+*.egg-info/

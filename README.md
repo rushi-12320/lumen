@@ -4,34 +4,50 @@ A self-hosted, multi-project platform for teams running LLM features in producti
 request, scores quality online, finds the cause of regressions with an ops agent, gates releases with
 evaluations, and keeps a tamper-evident audit trail. Agents propose and people approve.
 
-**No cloud LLM credentials required.** Lumen's only optional model is a **local Ollama** server, and every
-LLM job waits in an approval queue until a named person approves it. The queue shows the purpose, number of
-calls, estimated tokens and the exact redacted prompt. Endpoints must be local or private addresses unless
-an admin changes that policy.
+**No cloud LLM and no API keys.** Lumen never sends your data to a third-party AI provider and needs no AI API key.
+Its only optional model is an **Ollama** server on a local or private address, and every LLM job waits in an approval
+queue until a named person approves it. The queue shows the purpose, number of calls, estimated tokens and the exact
+redacted prompt. Endpoints must be local or private addresses unless an admin changes that policy.
+
+## Try it, then connect an app in two lines
+
+- **Try it** (first page of the console and of the public demo): chat with a sample support bot. Every answer becomes
+  a real trace, so you see Lumen mask personal data, check the answer against the articles the bot used, and flag
+  prompt injection. Three bot versions show what it catches (grounded, adds claims, leaks a contact). No LLM is called.
+- **Python, two lines.** Every OpenAI, Anthropic and Google Gemini call (normal, async, streaming) is traced and checked;
+  providers used through the `openai` package (Azure OpenAI, Groq, Together, DeepSeek, vLLM, Ollama) too:
+  ```
+  pip install http://127.0.0.1:8100/sdk/lumen_llm_sdk-0.2.0-py3-none-any.whl      # served by your Lumen
+  ```
+  ```python
+  import lumen_sdk
+  lumen_sdk.init(api_key="lmn_...", host="http://127.0.0.1:8100")
+  ```
+  `lumen_sdk.trace(...)` groups a request (retrieval + LLM call) into one trace; `@lumen_sdk.observe` turns a function
+  into one. See `sdk/example_ollama.py` for a complete example with a local model.
+- **Any language:** point an OpenTelemetry exporter at `/v1/otlp/v1/traces` with the header `x-lumen-key`. Lumen reads the
+  GenAI conventions (`gen_ai.*`), OpenInference, OpenLLMetry and the Vercel AI SDK (protobuf or JSON).
+
+## Two editions
+
+- **Self-hosted** (default): one team, your server, nothing leaves your network. Run it as below.
+- **Lumen Cloud** (`LUMEN_MODE=cloud`): the public service with a website, sign-up, organisations with a separate
+  database each, roles, plans, Razorpay/Stripe billing, a public demo and an admin page; deployed on AWS Mumbai with
+  our own GPU for approved LLM jobs. See [LAUNCH.md](LAUNCH.md) (customer journey, plans, costs, checklist) and
+  [deploy/aws/DEPLOY-AWS.md](deploy/aws/DEPLOY-AWS.md) (step by step). Try it locally:
+  `LUMEN_MODE=cloud LUMEN_DEMO=sandbox python -m lumen` then open http://127.0.0.1:8100 (emails go to `data/outbox/`).
 
 ## Run
 
 ```
 pip install -r requirements.txt
 python -m lumen                 # http://127.0.0.1:8100   (Windows: run.bat)
-python -m pytest -q tests       # 14 tests incl. a fake local Ollama and an SDK end-to-end run
+python -m pytest -q tests       # 42 tests incl. 18 Lumen Cloud flows, fake OpenAI / Anthropic / Gemini / Ollama servers and a
+                                # real OpenTelemetry exporter (pip install openai anthropic google-genai opentelemetry-sdk
+                                # opentelemetry-exporter-otlp-proto-http to run those; they are skipped otherwise)
 ```
 First start seeds a demo tenant ("Support Copilot") with 24 h of synthetic traffic and runs the ops agent once.
 Delete `data/lumen.db` to start over. Type your name in **Signed in as**, because every decision is signed.
-
-## Deploy a free demo on Render
-
-**Live demo:** [https://lumen-isrk.onrender.com](https://lumen-isrk.onrender.com)
-
-The hosted demo opens without a login and is read-only. Write actions are disabled on the public
-host; run Lumen locally to try project changes, approvals, and settings.
-
-The repository includes a Render Blueprint (`render.yaml`). Create a Render Blueprint from the GitHub
-repository to deploy the demo.
-
-Render's free web service has ephemeral storage and may sleep. Lumen's SQLite database is stored locally,
-so demo data can reset after a sleep, restart, or redeploy. This setup is for a public, read-only demo,
-not production. Ingestion and CI endpoints continue to require a project API key.
 
 ## What the demo shows
 
@@ -53,7 +69,8 @@ Your app picks up the change because it reads `lumen.get_prompt("rag_answer")`.
 
 | | |
 |---|---|
-| Ingestion | `sdk/lumen_sdk.py` (stdlib only: `start_trace`/`span`, `@trace`, background batching, `get_prompt`) and `POST /v1/traces` with an `X-Lumen-Key` project key (only a SHA-256 hash is stored) |
+| Ingestion | `sdk/lumen_sdk.py` (stdlib only; `init()` traces OpenAI, Anthropic and Gemini calls by itself; `trace`/`span`, `@observe`, background batching, `get_prompt`), served as a pip wheel at `/sdk/`; `POST /v1/traces`; OpenTelemetry at `POST /v1/otlp/v1/traces` (`lumen/otlp.py`). All with an `X-Lumen-Key` project key (only a SHA-256 hash is stored) |
+| Try it | `lumen/playground.py`: a sample support bot (no LLM) whose answers go through normal ingestion and checks |
 | Data protection | Email / phone / card (Luhn) / API key / IP redaction **before storage**; prompt-injection detection on inputs |
 | Online evaluators | not_empty, json_valid, pii_leak, prompt_injection, refusal, toxicity, groundedness (RAG), latency_slo |
 | Monitoring | Dashboards by route / model / prompt version / segment, alert rules, incidents with root-cause tables |
@@ -81,3 +98,16 @@ python tools/lumen_gate.py gate --key lmn_... --dataset rag-golden --name "PR-42
 
 Add SSO/RBAC (names are self-declared here), put HTTPS in front, move SQLite to Postgres for high volume,
 and set your real model prices in Settings. The default prices are examples.
+
+## Public demo
+
+`LUMEN_DEMO=sandbox` turns a hosted instance into a working public demo: each visitor gets a private copy
+(see `lumen/sandbox.py` and `render.yaml`).
+
+## Put it live
+
+- **Lumen Cloud on one small server, about ₹1,200 a month:** [deploy/single/GO-LIVE.md](deploy/single/GO-LIVE.md). One
+  command installs it on an Ubuntu server: website, sign-up, the public demo, automatic HTTPS, daily backups (no GPU).
+- **One team, self-hosted:** [deploy/DEPLOY.md](deploy/DEPLOY.md): Docker + Caddy with automatic HTTPS, a password on
+  the web UI, key-protected SDK/CI endpoints, backups and updates.
+- **Lumen Cloud with a GPU on AWS:** [deploy/aws/DEPLOY-AWS.md](deploy/aws/DEPLOY-AWS.md).

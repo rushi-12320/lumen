@@ -1,0 +1,10 @@
+# Only lumen/, static/, site/, sdk/, tools/ and requirements.txt go into the image (see deploy/Dockerfile).
+.git
+data
+dist
+tests
+.pytest_cache
+**/__pycache__
+**/*.pyc
+**/.env
+**/*.env

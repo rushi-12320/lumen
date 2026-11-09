@@ -1,0 +1,22 @@
+<section class="auth" id="invite" data-token="{{invite_token}}">
+  <h1>Join {{org_name}}</h1>
+  <p class="muted">You were invited as <b>{{invite_email}}</b>.</p>
+  <div class="msg"></div>
+  <div id="invite-in" class="card" hidden>
+    <p>You are logged in as <b id="invite-who"></b>.</p>
+    <button class="btn primary" id="join-btn" type="button" style="width:100%">Join {{org_name}}</button>
+  </div>
+  <div id="invite-out">
+    <form class="card" data-api="/auth/signup" data-confirm>
+      <div class="msg"></div>
+      <div class="field"><label for="nm">Your name</label><input id="nm" name="name" type="text" autocomplete="name" required></div>
+      <div class="field"><label for="em">Email</label><input id="em" name="email" type="email" value="{{invite_email}}" readonly></div>
+      <div class="field"><label for="pw">Password (10+ characters)</label><input id="pw" name="password" type="password" minlength="10" autocomplete="new-password" required></div>
+      <div class="field"><label for="pw2">Repeat the password</label><input id="pw2" name="password2" type="password" minlength="10" autocomplete="new-password" required></div>
+      <input type="hidden" name="invite" value="{{invite_token}}">
+      <div class="field"><label class="check"><input type="checkbox" name="accept" required> <span>I agree to the <a href="/terms" target="_blank">terms</a> and the <a href="/privacy" target="_blank">privacy policy</a>.</span></label></div>
+      <button class="btn primary" type="submit" style="width:100%">Create account and join</button>
+    </form>
+    <p class="small center" style="margin-top:14px">Already have an account? <a href="/login?next=/invite?token={{invite_token}}">Log in first</a>.</p>
+  </div>
+</section>

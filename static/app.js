@@ -18,11 +18,20 @@ async function api(path, opts = {}) {
   if (opts.body) init.body = JSON.stringify(opts.body);
   const r = await fetch(path, init);
   if (!r.ok) {
-    let m = r.statusText;
-    try { const j = await r.json(); m = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch { /* */ }
+    let m = r.statusText, j = null;
+    try { j = await r.json(); m = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch { /* */ }
+    if (r.status === 409 && j && j.reload && demoReload()) location.href = j.reload;   // public demo: copy expired
     throw new Error(m);
   }
   return r.json();
+}
+function demoReload() {            // at most once a minute, so a browser that drops cookies cannot loop
+  try {
+    const t = Number(sessionStorage.getItem("lumenDemoReload") || 0);
+    if (Date.now() - t < 60000) return false;
+    sessionStorage.setItem("lumenDemoReload", String(Date.now()));
+    return true;
+  } catch { return false; }
 }
 function toast(msg, kind = "") { const t = $("#toast"); t.textContent = msg; t.className = `toast on ${kind}`; clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", 4500); }
 const me = () => ($("#operator").value || "").trim();
@@ -35,10 +44,11 @@ const SC = { pending_approval: "b-warn", critic_blocked: "b-bad", applied: "b-ok
   allow: "b-ok", block: "b-bad", needs_approval: "b-warn", pending: "b-warn", executed: "b-ok", failed: "b-bad", ok: "b-ok", error: "b-bad",
   high: "b-bad", medium: "b-warn", low: "b-info" };
 const st = s => badge(String(s ?? "").replace(/_/g, " "), SC[s] || "b-mute");
-let META = null, OV = null;
+let META = null, OV = null, DEMO = null;
 
 /* ------------------------------------------------------------------ nav + status */
 const NAV = [
+  ["Start", [["playground", "Try it", "✦"]]],
   ["Observe", [["", "Overview", "◎"], ["traces", "Traces", "≡"], ["monitors", "Monitors & Incidents", "⚑", "inc"]]],
   ["Improve", [["evals", "Evaluations", "⊿"], ["prompts", "Prompt Registry", "❏"]]],
   ["Agents", [["agents", "Ops Agent", "⟳"], ["approvals", "Approvals", "✓", "appr"]]],
@@ -128,6 +138,86 @@ const view = () => $("#view");
 const errCard = e => `<div class="card"><h2 class="bad-t">Could not load</h2><p class="muted">${esc(e.message || e)}</p></div>`;
 const kpi = (l, v, n, cls = "") => `<div class="card kpi"><div class="lbl">${l}</div><div class="val ${cls}">${v}</div><div class="note">${n}</div></div>`;
 const tl = id => `<a href="#" data-trace="${esc(id)}" class="mono">${esc(id.slice(0, 10))}</a>`;
+
+/* ------------------------------------------------------------------ Try it (playground) */
+const PLAY = { turns: [], sel: -1, variant: store.get("playVariant", "grounded"), session: null, info: null, busy: false };
+const piiMark = t => esc(t).replace(/\[(EMAIL|PHONE|CARD|API_KEY|AWS_KEY|IP)\]/g, '<mark class="pii">[$1]</mark>');
+const twoLines = () => `pip install ${location.origin}${META && META.sdk ? META.sdk.wheel : "/sdk/"}\n\nimport lumen_sdk\nlumen_sdk.init(api_key="lmn_…", host="${location.origin}")`;
+function copyText(text) {
+  try { navigator.clipboard.writeText(text).then(() => toast("Copied", "ok"), () => toast("Select the text and copy it", "bad")); } catch { toast("Select the text and copy it", "bad"); }
+}
+function nextStep() {
+  if (window.LUMEN_CLOUD) return { href: "/app/onboarding", label: "Get your key", note: "Create a key on the Get started page, then add these two lines to your app." };
+  if (window.LUMEN_DEMO) return { href: window.LUMEN_DEMO.signup || "/signup", label: "Start free", note: "Sign up free for your own key, then add these two lines to your app." };
+  return { href: "#/settings", label: "Create a key", note: "Create a key under Settings & Keys, then add these two lines to your app." };
+}
+V.playground = async () => {
+  PLAY.info = PLAY.info || await api("/api/playground");
+  PLAY.session = PLAY.session || `play-${Math.random().toString(36).slice(2, 10)}`;
+  const I = PLAY.info, nx = nextStep();
+  view().innerHTML = `<h1>Try it</h1><p class="sub">Chat with a sample support bot. Each answer becomes a real trace: Lumen masks personal data before storing it, checks the answer against the help-center articles the bot used, and flags prompt injection. No code and no API key needed.</p>
+  <div class="play"><div class="card play-chat">
+      <div class="seg" role="radiogroup" aria-label="Bot version">${I.variants.map(v => `<button type="button" role="radio" data-var="${esc(v.id)}">${esc(v.label)}</button>`).join("")}</div>
+      <p class="small muted" id="pnote"></p>
+      <div class="msgs" id="pmsgs" aria-live="polite"></div>
+      <div class="chips">${I.samples.map(x => `<button type="button" class="chipq" data-q="${esc(x.text)}" title="${esc(x.why)}">${esc(x.text)}</button>`).join("")}</div>
+      <form class="pform" id="pform"><input id="pin" maxlength="2000" placeholder="Ask about passwords, invoices, the API…" autocomplete="off" aria-label="Your question"><button class="btn primary" id="psend">Send</button></form>
+      <p class="small muted">${esc(I.note)}${window.LUMEN_CLOUD ? " These traces are tagged playground and count toward your monthly traces." : ""}</p></div>
+    <div class="card" id="pside"></div></div>
+  <div class="card mt"><h2>Your own app, in two lines</h2><p class="small muted">${esc(nx.note)} Every OpenAI, Anthropic and Gemini call is then traced and checked like the answers above, including async and streaming calls.</p>
+    <code class="blk">${esc(twoLines())}</code>
+    <div class="row mt"><a class="btn primary" href="${esc(nx.href)}">${esc(nx.label)}</a><button class="btn" id="p2copy" type="button">Copy</button><span class="small muted">Other languages and frameworks: OpenTelemetry, see <a href="#/settings">Settings &amp; Keys</a>.</span></div></div>`;
+  const seg = () => {
+    $$("[data-var]").forEach(b => { const on = b.dataset.var === PLAY.variant; b.classList.toggle("on", on); b.setAttribute("aria-checked", String(on)); });
+    $("#pnote").textContent = (I.variants.find(v => v.id === PLAY.variant) || {}).note || "";
+  };
+  $$("[data-var]").forEach(b => b.onclick = () => { PLAY.variant = b.dataset.var; store.set("playVariant", PLAY.variant); seg(); });
+  $$("[data-q]").forEach(b => b.onclick = () => playSend(b.dataset.q));
+  $("#pform").onsubmit = e => { e.preventDefault(); const q = $("#pin").value; $("#pin").value = ""; playSend(q); };
+  $("#p2copy").onclick = () => copyText(twoLines());
+  seg(); playMsgs(); playSide();
+};
+function playMsgs() {
+  const box = $("#pmsgs");
+  if (!box) return;
+  box.innerHTML = PLAY.turns.length ? PLAY.turns.map((t, i) => `<div class="msg me">${esc(t.q)}</div>` + (t.res
+    ? `<button type="button" class="msg bot ${i === PLAY.sel ? "on" : ""}" data-turn="${i}" aria-pressed="${i === PLAY.sel}"><span>${esc(t.res.answer)}</span><span class="msg-meta">${t.res.checks.map(c => `<i class="ck ${c.passed ? "ok" : c.security ? "vio" : "bad"}" title="${esc(c.label)}: ${c.passed ? "pass" : "flagged"}"></i>`).join("")}<span>${esc(t.res.variant_label)} · ${t.res.checks.some(c => !c.passed) ? `${t.res.checks.filter(c => !c.passed).length} flagged` : "all checks passed"}</span></span></button>`
+    : t.err ? `<div class="msg bot err">${esc(t.err)}</div>` : `<div class="msg bot typing" role="status" aria-label="The bot is answering"><span></span><span></span><span></span></div>`)).join("")
+    : `<div class="empty small">Pick an example below, or type your own question.</div>`;
+  box.scrollTop = box.scrollHeight;
+  $$("[data-turn]", box).forEach(b => b.onclick = () => { PLAY.sel = Number(b.dataset.turn); playMsgs(); playSide(); });
+}
+function playSide() {
+  const el = $("#pside");
+  if (!el) return;
+  const t = PLAY.turns[PLAY.sel], r = t && t.res;
+  if (!r) { el.innerHTML = `<h2>What Lumen saw</h2><div class="empty">Send a message. The checks for each answer appear here, with a link to the full trace.</div>`; return; }
+  const bad = r.checks.filter(c => !c.passed && !c.security);
+  const [cls, text] = bad.length ? ["bad", `Lumen caught ${bad.length} problem${bad.length > 1 ? "s" : ""} in this answer`] : r.flagged ? ["vio", "Answer OK, but the question was flagged"] : ["ok", "All checks passed"];
+  el.innerHTML = `<h2>What Lumen saw</h2><div class="verdict ${cls}">${esc(text)}</div>${r.tips.map(x => `<p class="small">${esc(x)}</p>`).join("")}
+    <h3 class="mt">Checks</h3>${r.checks.map(c => `<div class="find ${c.passed ? "pass" : c.security ? "warn" : "fail"}">${badge(c.passed ? "pass" : c.security ? "flag" : "fail", c.passed ? "b-ok" : c.security ? "b-vio" : "b-bad")} <b>${esc(c.label)}</b> <span class="small muted">${esc(c.detail)}</span></div>`).join("")}
+    <div class="pstats"><div><b>${ms(r.latency_ms)}</b><span>latency (simulated)</span></div><div><b>${r.tokens_in}/${r.tokens_out}</b><span>tokens in / out</span></div><div><b>${usd(r.cost)}</b><span>${esc(r.model)}</span></div><div><b>${r.stored.redactions}</b><span>personal data masked</span></div></div>
+    <h3 class="mt">Stored in Lumen</h3><div class="small muted">Question</div><div class="txt">${piiMark(r.stored.input)}</div><div class="small muted">Answer</div><div class="txt">${piiMark(r.stored.output)}</div>
+    <h3>Articles the bot used</h3>${r.retrieved.length ? r.retrieved.map(d => `<div class="find"><b>${esc(d.title)}</b> <span class="small muted">match ${fmt(d.score, 1)}</span><div class="small">${piiMark(d.text)}</div></div>`).join("") : '<p class="small muted">None matched, so there is nothing to check the answer against.</p>'}
+    <div class="row mt"><a href="#" class="btn" data-trace="${esc(r.trace_id)}">Open the full trace</a><a class="btn" href="#/traces">All traces</a></div>`;
+}
+async function playSend(q) {
+  q = (q || "").trim();
+  if (!q || PLAY.busy) return;
+  PLAY.busy = true;
+  const b = $("#psend"); if (b) b.disabled = true;
+  const turn = { q };
+  PLAY.turns.push(turn);
+  if (PLAY.turns.length > 40) PLAY.turns.shift();
+  playMsgs();
+  try {
+    const [res] = await Promise.all([api("/api/playground/chat", { body: { project: P(), message: q, variant: PLAY.variant, session: PLAY.session } }), sleep(400)]);
+    turn.res = res; PLAY.sel = PLAY.turns.indexOf(turn);
+  } catch (e) { turn.err = e.message; }
+  PLAY.busy = false;
+  const b2 = $("#psend"); if (b2) b2.disabled = false;
+  playMsgs(); playSide(); refreshStatus();
+}
 
 /* ------------------------------------------------------------------ Overview */
 V[""] = async () => {
@@ -459,17 +549,17 @@ V.settings = async () => {
     <p class="small ${llm.endpoint_ok ? "ok-t" : "bad-t"}">${esc(llm.endpoint_reason)}</p><div class="row"><button class="btn primary" id="lsave">Save (admin)</button><button class="btn" id="ltest">Test connection (lists models, sends no data)</button></div><div id="lres" class="mt small"></div></div>
   <div class="card"><h2>Ingestion keys - ${esc((projects.find(p => p.id === P()) || {}).name || P())}</h2><div class="row"><input id="kn" placeholder="key name, e.g. prod-backend"><button class="btn primary" id="kadd">Create key (admin)</button></div><div id="knew" class="mt"></div>
     <table class="mt"><tbody>${keys.map(k => `<tr><td><b>${esc(k.name)}</b><div class="small muted mono">${esc(k.prefix)}… · ${esc(when(k.created_at))} · ${esc(k.created_by)}</div></td><td>${k.revoked ? badge("revoked", "b-mute") : `<button class="btn sm danger" data-rev="${esc(k.id)}">Revoke</button>`}</td></tr>`).join("") || '<tr><td class="muted small">No keys yet.</td></tr>'}</tbody></table></div></div>
-  <div class="grid g2 mt"><div class="card"><h2>Integrate</h2><p class="small muted">Python SDK (copy <code>sdk/lumen_sdk.py</code> into your app):</p>
-    <code class="blk">from lumen_sdk import Lumen
-lumen = Lumen(api_key="lmn_…", host="${esc(host)}")
-
-with lumen.start_trace("rag_answer", input=q, prompt_name="rag_answer",
-                       prompt_version=lumen.get_prompt("rag_answer")["version"]) as t:
-    with t.span("retrieval", name="kb_search", input=q) as s:
+  <div class="grid g2 mt"><div class="card"><h2>Connect your app</h2><p class="small muted">Python, two lines: every OpenAI, Anthropic and Gemini call (also async and streaming) is traced and checked.</p>
+    <code class="blk">${esc(twoLines())}</code>
+    <p class="small muted mt">One request = one trace. Add the retrieval step to turn on the groundedness check:</p>
+    <code class="blk">with lumen_sdk.trace("rag_answer", input=question, user_id=user_id) as t:
+    with t.span("retrieval", name="kb_search", input=question) as s:
         s.output = docs
-    with t.span("llm", name="generate", model="smart-model") as s:
-        s.output, s.tokens_in, s.tokens_out = answer, 812, 64
-    t.output = answer</code>
+    answer = client.chat.completions.create(...)   # recorded inside this trace
+    t.output = answer.choices[0].message.content</code>
+    <p class="small muted mt">Any language or framework with OpenTelemetry (JS/TS, Go, Java, LangChain, LlamaIndex, Vercel AI SDK):</p>
+    <code class="blk">OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${esc(host)}/v1/otlp/v1/traces
+OTEL_EXPORTER_OTLP_TRACES_HEADERS=x-lumen-key=lmn_…</code>
     <p class="small muted mt">REST:</p><code class="blk">curl -X POST ${esc(host)}/v1/traces -H "X-Lumen-Key: lmn_…" \\
   -H "Content-Type: application/json" \\
   -d '{"name":"chat","model":"fast-model","input":"hi","output":"hello",
@@ -505,7 +595,19 @@ $("#operator").value = store.get("operator", "");
 $("#operator").oninput = e => store.set("operator", e.target.value.trim());
 $("#project").onchange = async e => { store.set("project", e.target.value); await refreshStatus(); route(); };
 window.addEventListener("hashchange", route);
+async function demoBanner() {
+  let d; try { d = await api("/api/demo"); } catch { return; }
+  DEMO = d;
+  if (!d.demo) return;
+  if (!me()) { $("#operator").value = "Demo visitor"; }
+  if (!location.hash) history.replaceState(null, "", "#/playground");      // a first visit starts hands-on
+  const b = document.createElement("div");
+  b.className = "demo-banner";
+  b.innerHTML = `<b>Live demo</b>, your own private copy with sample data. Start with <a href="#/playground">Try it</a>: chat with a sample bot and see what Lumen checks. Then open the incident on <a href="#/monitors">Monitors</a> and approve the fix on <a href="#/approvals">Approvals</a>. Changes are visible only to you and reset after ${d.ttl_minutes} min without use. <button class="btn" id="demo-reset">Start over</button>`;
+  $(".main").insertBefore(b, $("#ticker"));
+  $("#demo-reset").onclick = async () => { await api("/api/demo/reset", { method: "POST" }); location.hash = ""; location.reload(); };
+}
 (async () => {
-  try { META = await api("/api/meta"); await loadProjects(); } catch (e) { view().innerHTML = errCard(e); return; }
+  try { await demoBanner(); META = await api("/api/meta"); await loadProjects(); } catch (e) { view().innerHTML = errCard(e); return; }
   await refreshStatus(); startEvents(); route(); setInterval(refreshStatus, 20000);
 })();

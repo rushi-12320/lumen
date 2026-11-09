@@ -1,0 +1,44 @@
+<div class="wrap legal">
+  <div class="eyebrow">Security</div>
+  <h1>How {{brand}} Cloud protects your data</h1>
+  <p class="lead">What we store, where, who can see it, and how to get it back or delete it.</p>
+
+  <h2>Where your data lives</h2>
+  <p>{{brand}} Cloud runs on Amazon Web Services in the Mumbai region (ap-south-1). Application servers, databases, backups and the GPU server for LLM jobs are all in that region.</p>
+
+  <h2>Separation between customers</h2>
+  <p>Every organisation has its own database file. The application opens only the database of the organisation the signed-in person belongs to (or that an API key belongs to); there are no shared tables of customer data.</p>
+
+  <h2>Personal data in traces</h2>
+  <p>Before a trace is stored, email addresses, phone numbers, card numbers, API keys and IP addresses are replaced by placeholders. You decide what your app sends; send less if you can.</p>
+
+  <h2>Encryption</h2>
+  <p>All traffic uses HTTPS (TLS). Disks and backups are encrypted at rest by AWS. API keys and session tokens are stored only as hashes; passwords as salted scrypt hashes.</p>
+
+  <h2>Access</h2>
+  <p>People sign in with email and password; sessions expire after 30 days and failed logins are rate limited. Inside an organisation, roles decide who can approve changes, create keys or manage billing. Our engineers access servers only through AWS Systems Manager (no open SSH port), and only to operate the service.</p>
+
+  <h2>AI and LLM processing</h2>
+  <p>LLM jobs run on our own GPU server (open models served with Ollama) in the same AWS region, only after a person in your organisation approves each job. We never send your data to a third-party AI provider, and we do not train models on it.</p>
+
+  <h2>Backups and recovery</h2>
+  <p>Databases are copied to encrypted, private Amazon S3 storage every 15 minutes (kept for 2 days), and a daily copy is kept for 35 days.</p>
+
+  <h2>Audit trail</h2>
+  <p>Inside the console, every decision (approvals, rollbacks, key changes, policy changes) is written to a hash-chained ledger that shows any later edit. Account actions (sign-ups, invitations, role and billing changes) are logged as well.</p>
+
+  <h2>Your controls</h2>
+  <p>Export your organisation's complete database from Settings &gt; Data at any time. Deleting the organisation erases its database at once; backups expire within 35 days.</p>
+
+  <h2>Sub-processors</h2>
+  <div class="table-wrap"><table class="data">
+    <tr><th>Provider</th><th>What for</th><th>Where</th></tr>
+    <tr><td>Amazon Web Services</td><td>Hosting, storage, backups, email (Amazon SES)</td><td>Mumbai, India</td></tr>
+    <tr><td>Razorpay</td><td>Payments in India (we never see card or bank details)</td><td>India</td></tr>
+    <tr><td>Stripe</td><td>International card payments (we never see card details)</td><td>Outside India</td></tr>
+  </table></div>
+
+  <h2>Reporting a security issue</h2>
+  <p>Email {{email}} with details. We acknowledge within 2 business days and do not take action against good-faith research that respects your and other customers' data.</p>
+  <p>Need it fully inside your network? Run <a href="/docs#self-host">{{brand}} self-hosted</a>.</p>
+</div>
