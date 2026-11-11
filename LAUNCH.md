@@ -8,7 +8,7 @@ on AWS in Mumbai with our own GPU for approved LLM jobs. The self-hosted edition
 
 | Stage | What the customer does | What Lumen does |
 |---|---|---|
-| 1. Discover | Lands on the website, reads pricing, security and docs, opens the **live demo** (`/demo`). It starts on **Try it**: they chat with a sample bot and watch every answer get traced and checked | Each demo visitor gets a private copy with sample data, reset after 2 hours without use |
+| 1. Discover | Lands on the website, reads pricing, security and docs, opens the **live demo** (`/demo`). It starts on **Try it**: by default a sample bot; if `LUMEN_DEMO_LLM_URL` is configured, a live Ollama model answers with help-center context. Answers are traced and checked | Each demo visitor gets a private copy with sample data, reset after 2 hours without use |
 | 2. Sign up | Name, work email, company, password, accepts terms. No card | Creates their organisation with its own database, a first project, default alert rules; sends a confirmation email |
 | 3. First trace (~5 min) | "Get started" page: creates an API key, runs `pip install` from your site and adds two lines (OpenAI, Anthropic and Gemini calls are then traced by themselves); or sets two OpenTelemetry variables (any language); or one `curl` | Shows the key once, waits live, says "First trace received" |
 | 4. Daily use | Watches the console: traces, cost, latency, quality checks, alerts, incidents | Redacts personal data, scores every answer, opens incidents, the ops agent proposes fixes |

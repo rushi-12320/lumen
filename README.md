@@ -4,16 +4,20 @@ A self-hosted, multi-project platform for teams running LLM features in producti
 request, scores quality online, finds the cause of regressions with an ops agent, gates releases with
 evaluations, and keeps a tamper-evident audit trail. Agents propose and people approve.
 
-**No cloud LLM and no API keys.** Lumen never sends your data to a third-party AI provider and needs no AI API key.
-Its only optional model is an **Ollama** server on a local or private address, and every LLM job waits in an approval
-queue until a named person approves it. The queue shows the purpose, number of calls, estimated tokens and the exact
-redacted prompt. Endpoints must be local or private addresses unless an admin changes that policy.
+**No hosted LLM key is required by default.** Lumen's optional LLM jobs use Ollama and wait in an approval queue
+until a named person approves them. The public demo uses sample responses unless its operator configures
+`LUMEN_DEMO_LLM_URL`. When enabled, demo questions are redacted and sent to that Ollama endpoint; do not enter
+secrets, and keep the endpoint private or protect it with HTTPS and a server-side bearer token.
 
 ## Try it, then connect an app in two lines
 
-- **Try it** (first page of the console and of the public demo): chat with a sample support bot. Every answer becomes
+- **Try it** (first page of the console and of the public demo): chat with a support bot. By default it uses sample
+  responses; the public demo can use an operator-configured Ollama model. Every answer becomes
   a real trace, so you see Lumen mask personal data, check the answer against the articles the bot used, and flag
-  prompt injection. Three bot versions show what it catches (grounded, adds claims, leaks a contact). No LLM is called.
+  prompt injection. Three bot versions show what it catches (grounded, adds claims, leaks a synthetic contact).
+  Configure `LUMEN_DEMO_LLM_URL` in the server environment to enable it; optionally set `LUMEN_DEMO_LLM_MODEL`,
+  `LUMEN_DEMO_LLM_API_KEY` (Bearer token; HTTPS required), and `LUMEN_DEMO_LLM_PER_MIN` (default 6). Never expose
+  endpoint credentials in browser code.
 - **Python, two lines.** Every OpenAI, Anthropic and Google Gemini call (normal, async, streaming) is traced and checked;
   providers used through the `openai` package (Azure OpenAI, Groq, Together, DeepSeek, vLLM, Ollama) too:
   ```
@@ -70,7 +74,7 @@ Your app picks up the change because it reads `lumen.get_prompt("rag_answer")`.
 | | |
 |---|---|
 | Ingestion | `sdk/lumen_sdk.py` (stdlib only; `init()` traces OpenAI, Anthropic and Gemini calls by itself; `trace`/`span`, `@observe`, background batching, `get_prompt`), served as a pip wheel at `/sdk/`; `POST /v1/traces`; OpenTelemetry at `POST /v1/otlp/v1/traces` (`lumen/otlp.py`). All with an `X-Lumen-Key` project key (only a SHA-256 hash is stored) |
-| Try it | `lumen/playground.py`: a sample support bot (no LLM) whose answers go through normal ingestion and checks |
+| Try it | `lumen/playground.py`: a sample bot by default, optionally backed by an operator-configured Ollama endpoint; answers go through normal ingestion and checks |
 | Data protection | Email / phone / card (Luhn) / API key / IP redaction **before storage**; prompt-injection detection on inputs |
 | Online evaluators | not_empty, json_valid, pii_leak, prompt_injection, refusal, toxicity, groundedness (RAG), latency_slo |
 | Monitoring | Dashboards by route / model / prompt version / segment, alert rules, incidents with root-cause tables |

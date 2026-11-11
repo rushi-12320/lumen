@@ -91,6 +91,18 @@ def test_unsafe_actions_are_blocked(demo):
     assert a.post("/api/llm/requests/whatever/decision", json={"decision": "approve", "by": "x"}).status_code == 403
 
 
+def test_live_demo_model_is_rate_limited_per_visitor(demo, monkeypatch):
+    monkeypatch.setenv("LUMEN_DEMO_LLM_URL", "http://ollama.internal:11434")
+    monkeypatch.setattr(sandbox, "LLM_PER_MIN", 1)
+    monkeypatch.setattr("lumen.llm_gate.ollama_generate",
+                        lambda *args, **kwargs: {"text": "Use Settings to reset your password."})
+    a = visitor()
+    body = {"project": PID, "message": "How do I reset my password?"}
+    assert a.post("/api/playground/chat", json=body).status_code == 200
+    response = a.post("/api/playground/chat", json=body)
+    assert response.status_code == 429 and "limit" in response.json()["detail"]
+
+
 def test_activity_feed_is_per_visitor(demo):
     a, b = visitor(), visitor()
     a.post("/api/sim/tick", json={"project": PID, "n": 3})

@@ -284,6 +284,8 @@ def playground_chat(body: PlayIn, c=Depends(conn)):
         raise HTTPException(400, "Type a question first.")
     if len(msg) > 2000:
         raise HTTPException(400, "Keep the question under 2,000 characters.")
+    if sandbox.ENABLED and playground.live_model_enabled() and not sandbox.allow_llm(sandbox.current_id()):
+        raise HTTPException(429, "Live model limit reached. Wait a minute before trying again.")
     r = playground.chat(c, body.project, msg, body.variant, body.session)
     events.publish("traces", count=r["added"], project=body.project)
     return r

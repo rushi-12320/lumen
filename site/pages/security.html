@@ -19,7 +19,7 @@
   <p>People sign in with email and password; sessions expire after 30 days and failed logins are rate limited. Inside an organisation, roles decide who can approve changes, create keys or manage billing. Our engineers access servers only through AWS Systems Manager (no open SSH port), and only to operate the service.</p>
 
   <h2>AI and LLM processing</h2>
-  <p>LLM jobs run on our own GPU server (open models served with Ollama) in the same AWS region, only after a person in your organisation approves each job. We never send your data to a third-party AI provider, and we do not train models on it.</p>
+  <p>Customer LLM jobs run on our own GPU server (open models served with Ollama) in the same AWS region, only after a person in your organisation approves each job. We do not train models on Customer Data. Separately, the public demo can be configured by its operator to send redacted demo questions and synthetic help-center context to an Ollama endpoint; the Try it page discloses when that mode is enabled.</p>
 
   <h2>Backups and recovery</h2>
   <p>Databases are copied to encrypted, private Amazon S3 storage every 15 minutes (kept for 2 days), and a daily copy is kept for 35 days.</p>

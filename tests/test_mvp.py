@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "sdk"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from lumen import db, ingest, otlp, sdkdist  # noqa: E402
+from lumen import db, ingest, llm_gate, otlp, sdkdist  # noqa: E402
 from lumen.app import app  # noqa: E402
 
 ANSWER = "To reset your password open Settings, choose Security and click Reset password."
@@ -110,6 +110,30 @@ def test_playground_shows_what_lumen_catches(client, project):
     assert raw == 0, "unredacted text reached the database"
     assert client.post("/api/playground/chat", json={"project": project, "message": "   "}).status_code == 400
     assert client.post("/api/playground/chat", json={"project": "PRJ-NOPE", "message": "hi"}).status_code == 404
+
+
+def test_playground_uses_redacted_prompt_with_live_ollama(client, project, monkeypatch):
+    monkeypatch.setenv("LUMEN_DEMO_LLM_URL", "http://ollama.internal:11434")
+    monkeypatch.setenv("LUMEN_DEMO_LLM_MODEL", "demo-model")
+    calls = []
+
+    def fake_generate(url, model, prompt, timeout, max_tokens, opener=None):
+        calls.append((url, model, prompt, timeout, max_tokens))
+        return {"text": "Export invoices from Billing settings.", "tokens_in": 50, "tokens_out": 8}
+
+    monkeypatch.setattr(llm_gate, "ollama_generate", fake_generate)
+    info = client.get("/api/playground").json()
+    assert info["live_model"] and info["model"] == "demo-model"
+    response = client.post("/api/playground/chat", json={
+        "project": project, "message": "My email is priya.sharma@example.com. How do I export invoices?"
+    })
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["live_model"] and result["model"] == "demo-model"
+    assert "priya.sharma@example.com" not in calls[0][2] and "[EMAIL]" in calls[0][2]
+    assert result["stored"]["input"].endswith("[EMAIL]. How do I export invoices?")
+    trace = client.get(f"/api/traces/{result['trace_id']}").json()["trace"]
+    assert trace["metadata"]["simulated"] is False
 
 
 # ====================================================================== SDK as a wheel

@@ -71,7 +71,7 @@ async function refreshStatus() {
     chip(OV.llm.enabled ? "violet" : "", OV.llm.enabled ? `local LLM ${esc(OV.llm.model)} · approval required` : "local LLM off"),
     OV.pending_llm ? chip("warn", `${OV.pending_llm} LLM job(s) awaiting permission`) : "",
   ].join("");
-  $("#side-foot").innerHTML = `Merkle root<br><code>${esc(short(OV.ledger.merkle_root))}</code><br><span class="small">No cloud LLM · no API keys used</span>`;
+  $("#side-foot").innerHTML = `Merkle root<br><code>${esc(short(OV.ledger.merkle_root))}</code><br><span class="small">Model use follows the configured endpoint</span>`;
   renderNav();
 }
 async function loadProjects() {
@@ -155,7 +155,9 @@ V.playground = async () => {
   PLAY.info = PLAY.info || await api("/api/playground");
   PLAY.session = PLAY.session || `play-${Math.random().toString(36).slice(2, 10)}`;
   const I = PLAY.info, nx = nextStep();
-  view().innerHTML = `<h1>Try it</h1><p class="sub">Chat with a sample support bot. Each answer becomes a real trace: Lumen masks personal data before storing it, checks the answer against the help-center articles the bot used, and flags prompt injection. No code and no API key needed.</p>
+  const intro = I.live_model ? `Chat with a live Ollama model grounded in help-center articles. Lumen checks each answer and flags prompt injection.`
+    : `Chat with a sample support bot. Each answer becomes a real trace: Lumen masks personal data before storing it, checks the answer against the help-center articles the bot used, and flags prompt injection. No code and no API key needed.`;
+  view().innerHTML = `<h1>Try it</h1><p class="sub">${esc(intro)}</p>
   <div class="play"><div class="card play-chat">
       <div class="seg" role="radiogroup" aria-label="Bot version">${I.variants.map(v => `<button type="button" role="radio" data-var="${esc(v.id)}">${esc(v.label)}</button>`).join("")}</div>
       <p class="small muted" id="pnote"></p>
@@ -196,7 +198,7 @@ function playSide() {
   const [cls, text] = bad.length ? ["bad", `Lumen caught ${bad.length} problem${bad.length > 1 ? "s" : ""} in this answer`] : r.flagged ? ["vio", "Answer OK, but the question was flagged"] : ["ok", "All checks passed"];
   el.innerHTML = `<h2>What Lumen saw</h2><div class="verdict ${cls}">${esc(text)}</div>${r.tips.map(x => `<p class="small">${esc(x)}</p>`).join("")}
     <h3 class="mt">Checks</h3>${r.checks.map(c => `<div class="find ${c.passed ? "pass" : c.security ? "warn" : "fail"}">${badge(c.passed ? "pass" : c.security ? "flag" : "fail", c.passed ? "b-ok" : c.security ? "b-vio" : "b-bad")} <b>${esc(c.label)}</b> <span class="small muted">${esc(c.detail)}</span></div>`).join("")}
-    <div class="pstats"><div><b>${ms(r.latency_ms)}</b><span>latency (simulated)</span></div><div><b>${r.tokens_in}/${r.tokens_out}</b><span>tokens in / out</span></div><div><b>${usd(r.cost)}</b><span>${esc(r.model)}</span></div><div><b>${r.stored.redactions}</b><span>personal data masked</span></div></div>
+    <div class="pstats"><div><b>${ms(r.latency_ms)}</b><span>latency${r.live_model ? "" : " (simulated)"}</span></div><div><b>${r.tokens_in}/${r.tokens_out}</b><span>tokens in / out</span></div><div><b>${usd(r.cost)}</b><span>${esc(r.model)}</span></div><div><b>${r.stored.redactions}</b><span>personal data masked</span></div></div>
     <h3 class="mt">Stored in Lumen</h3><div class="small muted">Question</div><div class="txt">${piiMark(r.stored.input)}</div><div class="small muted">Answer</div><div class="txt">${piiMark(r.stored.output)}</div>
     <h3>Articles the bot used</h3>${r.retrieved.length ? r.retrieved.map(d => `<div class="find"><b>${esc(d.title)}</b> <span class="small muted">match ${fmt(d.score, 1)}</span><div class="small">${piiMark(d.text)}</div></div>`).join("") : '<p class="small muted">None matched, so there is nothing to check the answer against.</p>'}
     <div class="row mt"><a href="#" class="btn" data-trace="${esc(r.trace_id)}">Open the full trace</a><a class="btn" href="#/traces">All traces</a></div>`;
@@ -612,7 +614,7 @@ async function demoBanner() {
   if (!location.hash) history.replaceState(null, "", "#/playground");      // a first visit starts hands-on
   const b = document.createElement("div");
   b.className = "demo-banner";
-  b.innerHTML = `<b>Live demo</b>, your own private copy with sample data. Start with <a href="#/playground">Try it</a>: chat with a sample bot and see what Lumen checks. Then open the incident on <a href="#/monitors">Monitors</a> and approve the fix on <a href="#/approvals">Approvals</a>. Changes are visible only to you and reset after ${d.ttl_minutes} min without use. <button class="btn" id="demo-reset">Start over</button>`;
+  b.innerHTML = `<b>Live demo</b>, your own private copy with sample data. Start with <a href="#/playground">Try it</a>: chat with the bot and see what Lumen checks. Then open the incident on <a href="#/monitors">Monitors</a> and approve the fix on <a href="#/approvals">Approvals</a>. Changes are visible only to you and reset after ${d.ttl_minutes} min without use. <button class="btn" id="demo-reset">Start over</button>`;
   $(".main").insertBefore(b, $("#ticker"));
   $("#demo-reset").onclick = async () => { await api("/api/demo/reset", { method: "POST" }); location.hash = ""; location.reload(); };
 }

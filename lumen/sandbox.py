@@ -28,6 +28,7 @@ ENABLED = os.environ.get("LUMEN_DEMO", "").lower() == "sandbox"
 TTL_S = int(os.environ.get("LUMEN_SANDBOX_TTL_MIN", "120")) * 60
 MAX_SANDBOXES = int(os.environ.get("LUMEN_MAX_SANDBOXES", "200"))
 WRITES_PER_MIN = int(os.environ.get("LUMEN_DEMO_WRITES_PER_MIN", "60"))
+LLM_PER_MIN = int(os.environ.get("LUMEN_DEMO_LLM_PER_MIN", "6"))
 MAX_AGE_S = int(os.environ.get("LUMEN_SANDBOX_MAX_AGE_MIN", "480")) * 60
 MAX_BYTES = int(os.environ.get("LUMEN_SANDBOX_MAX_MB", "24")) * 1024 * 1024
 NEW_PER_HOUR = int(os.environ.get("LUMEN_DEMO_NEW_PER_HOUR", "10"))
@@ -40,6 +41,7 @@ _new = {}
 _current_db = contextvars.ContextVar("lumen_db", default=None)
 _current_id = contextvars.ContextVar("lumen_sandbox_id", default=None)
 _writes = {}
+_llm_calls = {}
 
 BLOCKED = [  # (method, path regex, message)
     ("PUT", r"^/api/llm/config$", "Changing the LLM endpoint is disabled in the hosted demo."),
@@ -257,6 +259,11 @@ def allow_write(visitor):
             for k in [k for k, v in _writes.items() if not v or now - v[-1] > 120]:
                 _writes.pop(k, None)
         return True
+
+
+def allow_llm(visitor):
+    with _wlock:
+        return _window(_llm_calls, visitor, LLM_PER_MIN, 60)
 
 
 def blocked(method, path):

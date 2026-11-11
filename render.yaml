@@ -18,5 +18,7 @@ services:
         value: "50"
       - key: LUMEN_DEMO_WRITES_PER_MIN
         value: "60"
+      - key: LUMEN_DEMO_LLM_PER_MIN
+        value: "6"
       - key: PYTHON_VERSION
         value: "3.12.7"
